@@ -7,8 +7,10 @@
 #define MAX_GROUPS          50
 #define MAX_MEMBERS_PER_GROUP  100
 #define MAX_FILENAME_LEN    64
-#define MAX_FILES_PER_DIR   100
-#define MAX_SUBDIRS_PER_DIR 50
+#define MAX_PATH_LEN        256     // 最大路径长度
+#define MAX_FILES           1000    // 系统中最大文件节点数量
+#define MAX_FILES_PER_DIR   100     // 每个目录最大文件数
+#define MAX_SUBDIRS_PER_DIR 50      // 每个目录最大子目录数
 
 // 用户结构体
 typedef struct {
@@ -92,3 +94,15 @@ typedef enum {
     GROUP_ERR_INVALID,      // 无效参数
     GROUP_ERR_LIMIT         // 达到最大限制
 } GroupStatus;
+
+// 文件系统状态码
+typedef enum {
+    FS_SUCCESS,             // 操作成功
+    FS_ERR_EXISTS,          // 文件已存在
+    FS_ERR_NOT_FOUND,       // 文件不存在
+    FS_ERR_INVALID,         // 无效参数
+    FS_ERR_PERMISSION,      // 权限不足
+    FS_ERR_NOT_DIR,         // 不是目录
+    FS_ERR_NOT_EMPTY,       // 目录非空
+    FS_ERR_LIMIT            // 达到最大限制
+} FileSystemStatus;
