@@ -53,6 +53,21 @@ FileSystemStatus fs_create(const char* path, const char* filename,
 FileSystemStatus fs_delete(const char* path);
 
 /**
+ * 递归删除文件或目录
+ * @param path 完整路径(如 "/home/user/dir")
+ * @return 操作状态码
+ * @return FS_SUCCESS - 删除成功
+ * @return FS_ERR_INVALID - 参数无效
+ * @return FS_ERR_NOT_FOUND - 文件不存在
+ * @return FS_ERR_PERMISSION - 权限不足
+ * @note 删除操作需要父目录的写权限
+ * @note 如果是目录，会递归删除其所有内容
+ * @note 不能删除根目录
+ * @note 递归删除会检查每个子文件/目录的权限
+ */
+FileSystemStatus fs_delete_recursive(const char* path);
+
+/**
  * 根据路径查找文件节点
  * @param path 完整路径(如 "/home/user/file.txt")
  * @return 文件节点指针，未找到返回NULL

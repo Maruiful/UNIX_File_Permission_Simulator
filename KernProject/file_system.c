@@ -577,6 +577,122 @@ FileSystemStatus fs_delete(const char* path)
 }
 
 /**
+ * 递归删除文件或目录
+ * 使用后序遍历：先删除所有子节点，再删除节点本身
+ */
+FileSystemStatus fs_delete_recursive(const char* path)
+{
+    FileNode* file;
+    FileNode* parent;
+    FileNode* child;
+    FileNode* next_child;
+    FileNode* prev;
+    int uid, gid;
+
+    // 参数验证
+    if (path == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 不能删除根目录
+    if (str_compare(path, "/") == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 查找文件
+    file = fs_find(path);
+    if (file == 0) {
+        return FS_ERR_NOT_FOUND;
+    }
+
+    parent = file->parent;
+    if (parent == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 获取当前用户（这里简化处理，实际应该从上下文获取）
+    // 暂时使用文件所有者的身份
+    uid = file->uid;
+    gid = file->gid;
+
+    // 检查父目录的写权限
+    if (fs_check_permission(parent, uid, gid, OP_WRITE) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 如果是目录，递归删除所有子节点
+    if (file->type == FILE_TYPE_DIRECTORY) {
+        child = file->children;
+        while (child != 0) {
+            next_child = child->next;
+
+            // 构建子节点的完整路径以便递归删除
+            // 这里我们直接操作节点，不需要构建完整路径
+            // 递归删除子节点
+            FileNode* child_parent = child->parent;
+            FileNode* child_prev = 0;
+
+            // 从父目录的子节点链表中找到要删除的子节点
+            if (child_parent != 0) {
+                if (child_parent->children == child) {
+                    // 是第一个子节点
+                    child_parent->children = child->next;
+                } else {
+                    // 查找前一个节点
+                    child_prev = child_parent->children;
+                    while (child_prev != 0 && child_prev->next != child) {
+                        child_prev = child_prev->next;
+                    }
+                    if (child_prev != 0) {
+                        child_prev->next = child->next;
+                    }
+                }
+            }
+
+            // 递归删除子节点（如果子节点是目录，会继续递归）
+            // 先处理子节点的子节点（后序遍历）
+            if (child->type == FILE_TYPE_DIRECTORY && child->children != 0) {
+                // 需要构建路径递归调用，这里使用直接操作的方式
+                // 暂时保存 next 指针
+                FileNode* sub_child = child->children;
+                while (sub_child != 0) {
+                    FileNode* sub_next = sub_child->next;
+                    // 从链表中移除
+                    child->children = sub_child->next;
+                    // 释放节点
+                    free_file_node(sub_child);
+                    sub_child = sub_next;
+                }
+            }
+
+            // 释放子节点
+            free_file_node(child);
+            child = next_child;
+        }
+    }
+
+    // 从父目录的子节点链表中移除当前节点
+    if (parent->children == file) {
+        // 是第一个子节点
+        parent->children = file->next;
+    } else {
+        // 查找前一个节点
+        prev = parent->children;
+        while (prev != 0 && prev->next != file) {
+            prev = prev->next;
+        }
+        if (prev != 0) {
+            prev->next = file->next;
+        }
+    }
+
+    // 释放文件节点
+    free_file_node(file);
+
+    return FS_SUCCESS;
+}
+
+/**
  * 修改文件权限
  */
 FileSystemStatus fs_chmod(const char* path, Permissions perms)

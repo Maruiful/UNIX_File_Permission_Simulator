@@ -1027,6 +1027,206 @@ void test_copy() {
     print_fs_status(status);
 }
 
+void test_delete_recursive() {
+    std::cout << "\n=== 测试17: 递归删除目录 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* file;
+    Permissions perms;
+
+    // 创建测试目录结构
+    std::cout << "创建测试目录结构:" << std::endl;
+
+    // /tree/
+    //   ├── file1.txt
+    //   ├── file2.txt
+    //   └── subtree/
+    //       ├── file3.txt
+    //       └── file4.txt
+
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = 0;
+
+    std::cout << "  创建目录 /tree: ";
+    status = fs_create("/", "tree", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /tree/file1.txt: ";
+    status = fs_create("/tree", "file1.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "  创建 /tree/file2.txt: ";
+    status = fs_create("/tree", "file2.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "  创建子目录 /tree/subtree: ";
+    status = fs_create("/tree", "subtree", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /tree/subtree/file3.txt: ";
+    status = fs_create("/tree/subtree", "file3.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "  创建 /tree/subtree/file4.txt: ";
+    status = fs_create("/tree/subtree", "file4.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 验证目录结构
+    std::cout << "\n验证目录结构:" << std::endl;
+    std::cout << "  查找 /tree: ";
+    file = fs_find("/tree");
+    std::cout << (file ? "存在" : "不存在") << std::endl;
+
+    std::cout << "  查找 /tree/file1.txt: ";
+    file = fs_find("/tree/file1.txt");
+    std::cout << (file ? "存在" : "不存在") << std::endl;
+
+    std::cout << "  查找 /tree/subtree: ";
+    file = fs_find("/tree/subtree");
+    std::cout << (file ? "存在" : "不存在") << std::endl;
+
+    std::cout << "  查找 /tree/subtree/file3.txt: ";
+    file = fs_find("/tree/subtree/file3.txt");
+    std::cout << (file ? "存在" : "不存在") << std::endl;
+
+    // 尝试用普通 fs_delete 删除非空目录 (应该失败)
+    std::cout << "\n尝试用普通 fs_delete 删除非空目录 /tree (应该失败): ";
+    status = fs_delete("/tree");
+    if (status == FS_ERR_NOT_EMPTY) {
+        std::cout << "失败: 目录非空 (正确)" << std::endl;
+    } else {
+        std::cout << "意外结果: ";
+        print_fs_status(status);
+    }
+
+    // 使用 fs_delete_recursive 删除整个目录树
+    std::cout << "\n使用 fs_delete_recursive 递归删除 /tree: ";
+    status = fs_delete_recursive("/tree");
+    print_fs_status(status);
+
+    // 验证所有文件都被删除
+    std::cout << "\n验证删除结果:" << std::endl;
+    std::cout << "  查找 /tree: ";
+    file = fs_find("/tree");
+    std::cout << (file ? "仍存在 (错误)" : "不存在 (正确)") << std::endl;
+
+    std::cout << "  查找 /tree/file1.txt: ";
+    file = fs_find("/tree/file1.txt");
+    std::cout << (file ? "仍存在 (错误)" : "不存在 (正确)") << std::endl;
+
+    std::cout << "  查找 /tree/subtree: ";
+    file = fs_find("/tree/subtree");
+    std::cout << (file ? "仍存在 (错误)" : "不存在 (正确)") << std::endl;
+
+    std::cout << "  查找 /tree/subtree/file3.txt: ";
+    file = fs_find("/tree/subtree/file3.txt");
+    std::cout << (file ? "仍存在 (错误)" : "不存在 (正确)") << std::endl;
+
+    // 测试更深层级的目录结构
+    std::cout << "\n\n创建更深层级的目录结构进行测试:" << std::endl;
+
+    // /deep/
+    //   ├── level1/
+    //   │   ├── level2/
+    //   │   │   ├── level3/
+    //   │   │   │   └── file.txt
+    //   │   │   └── file2.txt
+    //   │   └── file1.txt
+    //   └── rootfile.txt
+
+    std::cout << "  创建 /deep: ";
+    status = fs_create("/", "deep", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /deep/level1: ";
+    status = fs_create("/deep", "level1", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /deep/level1/level2: ";
+    status = fs_create("/deep/level1", "level2", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /deep/level1/level2/level3: ";
+    status = fs_create("/deep/level1/level2", "level3", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /deep/level1/level2/level3/file.txt: ";
+    status = fs_create("/deep/level1/level2/level3", "file.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "  创建 /deep/level1/level2/file2.txt: ";
+    status = fs_create("/deep/level1/level2", "file2.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "  创建 /deep/level1/file1.txt: ";
+    status = fs_create("/deep/level1", "file1.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "  创建 /deep/rootfile.txt: ";
+    status = fs_create("/deep", "rootfile.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 验证文件数量增加
+    int file_count_before = fs_get_file_count();
+    std::cout << "\n当前文件系统文件数: " << file_count_before << std::endl;
+
+    // 递归删除
+    std::cout << "递归删除 /deep: ";
+    status = fs_delete_recursive("/deep");
+    print_fs_status(status);
+
+    // 验证文件数量减少
+    int file_count_after = fs_get_file_count();
+    std::cout << "删除后文件系统文件数: " << file_count_after << std::endl;
+
+    // 测试删除单个文件 (应该也能工作)
+    std::cout << "\n创建单个文件 /singlefile.txt: ";
+    status = fs_create("/", "singlefile.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "用 fs_delete_recursive 删除单个文件: ";
+    status = fs_delete_recursive("/singlefile.txt");
+    print_fs_status(status);
+
+    std::cout << "查找 /singlefile.txt: ";
+    file = fs_find("/singlefile.txt");
+    std::cout << (file ? "仍存在 (错误)" : "不存在 (正确)") << std::endl;
+
+    // 测试删除空目录
+    std::cout << "\n创建空目录 /emptydir: ";
+    status = fs_create("/", "emptydir", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "用 fs_delete_recursive 删除空目录: ";
+    status = fs_delete_recursive("/emptydir");
+    print_fs_status(status);
+
+    std::cout << "查找 /emptydir: ";
+    file = fs_find("/emptydir");
+    std::cout << (file ? "仍存在 (错误)" : "不存在 (正确)") << std::endl;
+
+    // 尝试删除根目录 (应该失败)
+    std::cout << "\n尝试删除根目录 / (应该失败): ";
+    status = fs_delete_recursive("/");
+    if (status == FS_ERR_INVALID) {
+        std::cout << "失败: 不能删除根目录 (正确)" << std::endl;
+    } else {
+        std::cout << "意外结果: ";
+        print_fs_status(status);
+    }
+
+    // 尝试删除不存在的路径 (应该失败)
+    std::cout << "\n尝试删除不存在的路径 /nonexistent (应该失败): ";
+    status = fs_delete_recursive("/nonexistent");
+    if (status == FS_ERR_NOT_FOUND) {
+        std::cout << "失败: 路径不存在 (正确)" << std::endl;
+    } else {
+        std::cout << "意外结果: ";
+        print_fs_status(status);
+    }
+}
+
 int main()
 {
     SetConsoleOutputCP(65001);
@@ -1061,6 +1261,7 @@ int main()
     test_move_directory();
     test_move_rename_permissions();
     test_copy();
+    test_delete_recursive();
 
     std::cout << "\n========================================" << std::endl;
     std::cout << "所有测试完成!" << std::endl;
