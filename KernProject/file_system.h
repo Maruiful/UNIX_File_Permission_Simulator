@@ -87,6 +87,42 @@ FileSystemStatus fs_chmod(const char* path, Permissions perms);
  */
 FileSystemStatus fs_chown(const char* path, int uid, int gid);
 
+/**
+ * 重命名文件或目录(在同一目录内)
+ * @param path 文件完整路径
+ * @param new_name 新文件名
+ * @param uid 执行操作的用户ID
+ * @param gid 执行操作的用户组ID
+ * @return 操作状态码
+ * @return FS_SUCCESS - 重命名成功
+ * @return FS_ERR_INVALID - 参数无效
+ * @return FS_ERR_NOT_FOUND - 文件不存在
+ * @return FS_ERR_EXISTS - 新文件名已存在
+ * @return FS_ERR_PERMISSION - 权限不足
+ * @note 需要对文件本身有写权限
+ * @note 需要对父目录有写权限
+ */
+FileSystemStatus fs_rename(const char* path, const char* new_name, int uid, int gid);
+
+/**
+ * 移动文件或目录到不同目录
+ * @param src_path 源文件完整路径
+ * @param dest_path 目标目录完整路径
+ * @param uid 执行操作的用户ID
+ * @param gid 执行操作的用户组ID
+ * @return 操作状态码
+ * @return FS_SUCCESS - 移动成功
+ * @return FS_ERR_INVALID - 参数无效或移动到自己的子目录
+ * @return FS_ERR_NOT_FOUND - 源文件或目标目录不存在
+ * @return FS_ERR_EXISTS - 目标目录中已有同名文件
+ * @return FS_ERR_NOT_DIR - 目标路径不是目录
+ * @return FS_ERR_PERMISSION - 权限不足
+ * @note 需要对源文件写权限
+ * @note 需要对源父目录和目标父目录写权限
+ * @note 不能将目录移动到其子目录中
+ */
+FileSystemStatus fs_move(const char* src_path, const char* dest_path, int uid, int gid);
+
 // ==================== 权限检查函数 ====================
 
 /**

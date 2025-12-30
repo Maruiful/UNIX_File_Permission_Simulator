@@ -643,3 +643,196 @@ FileSystemStatus fs_chown(const char* path, int uid, int gid)
 
     return FS_SUCCESS;
 }
+
+/**
+ * 重命名文件或目录(在同一目录内)
+ */
+FileSystemStatus fs_rename(const char* path, const char* new_name, int uid, int gid)
+{
+    FileNode* file;
+    FileNode* parent;
+    char dirname[MAX_PATH_LEN];
+    char old_filename[MAX_FILENAME_LEN];
+
+    // 参数验证
+    if (path == 0 || new_name == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    if (str_length(new_name) == 0 || str_length(new_name) >= MAX_FILENAME_LEN) {
+        return FS_ERR_INVALID;
+    }
+
+    // 不能重命名根目录
+    if (str_compare(path, "/") == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 查找文件
+    file = fs_find(path);
+    if (file == 0) {
+        return FS_ERR_NOT_FOUND;
+    }
+
+    parent = file->parent;
+    if (parent == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 检查权限 - 需要对文件本身有写权限
+    if (fs_check_permission(file, uid, gid, OP_WRITE) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 检查权限 - 需要对父目录有写权限
+    if (fs_check_permission(parent, uid, gid, OP_WRITE) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 检查新文件名是否已存在
+    if (fs_find_in_directory(parent, new_name) != 0) {
+        return FS_ERR_EXISTS;
+    }
+
+    // 保存旧文件名用于调试
+    str_copy(old_filename, file->filename);
+
+    // 修改文件名
+    str_copy(file->filename, new_name);
+
+    return FS_SUCCESS;
+}
+
+/**
+ * 检查目标路径是否是源路径的子目录
+ * 用于防止将目录移动到其子目录中
+ */
+static int is_descendant(FileNode* src, FileNode* dest)
+{
+    FileNode* current;
+
+    // 如果目标不是目录，则不可能是后代
+    if (dest->type != FILE_TYPE_DIRECTORY) {
+        return 0;
+    }
+
+    // 从目标目录向上遍历到根目录
+    current = dest;
+    while (current != 0) {
+        if (current == src) {
+            return 1;  // 找到了源节点，说明目标是源的后代
+        }
+        current = current->parent;
+    }
+
+    return 0;  // 不是后代
+}
+
+/**
+ * 移动文件或目录到不同目录
+ */
+FileSystemStatus fs_move(const char* src_path, const char* dest_path, int uid, int gid)
+{
+    FileNode* src_file;
+    FileNode* src_parent;
+    FileNode* dest_parent;
+    FileNode* existing_file;
+    FileNode* prev;
+    FileNode* last_child;
+    char filename[MAX_FILENAME_LEN];
+    int i;
+
+    // 参数验证
+    if (src_path == 0 || dest_path == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 不能移动根目录
+    if (str_compare(src_path, "/") == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 查找源文件
+    src_file = fs_find(src_path);
+    if (src_file == 0) {
+        return FS_ERR_NOT_FOUND;
+    }
+
+    src_parent = src_file->parent;
+    if (src_parent == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 查找目标目录
+    dest_parent = fs_find(dest_path);
+    if (dest_parent == 0) {
+        return FS_ERR_NOT_FOUND;
+    }
+
+    // 目标必须是目录
+    if (dest_parent->type != FILE_TYPE_DIRECTORY) {
+        return FS_ERR_NOT_DIR;
+    }
+
+    // 检查是否将目录移动到其子目录中
+    if (is_descendant(src_file, dest_parent)) {
+        return FS_ERR_INVALID;
+    }
+
+    // 检查权限 - 需要对源文件有写权限
+    if (fs_check_permission(src_file, uid, gid, OP_WRITE) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 检查权限 - 需要对源父目录有写权限
+    if (fs_check_permission(src_parent, uid, gid, OP_WRITE) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 检查权限 - 需要对目标父目录有写权限
+    if (fs_check_permission(dest_parent, uid, gid, OP_WRITE) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 保存源文件名
+    str_copy(filename, src_file->filename);
+
+    // 检查目标目录中是否已有同名文件
+    existing_file = fs_find_in_directory(dest_parent, filename);
+    if (existing_file != 0) {
+        return FS_ERR_EXISTS;
+    }
+
+    // 从源父目录的子节点链表中移除
+    if (src_parent->children == src_file) {
+        // 是第一个子节点
+        src_parent->children = src_file->next;
+    } else {
+        // 查找前一个节点
+        prev = src_parent->children;
+        while (prev != 0 && prev->next != src_file) {
+            prev = prev->next;
+        }
+        if (prev != 0) {
+            prev->next = src_file->next;
+        }
+    }
+
+    // 更新父指针
+    src_file->parent = dest_parent;
+
+    // 添加到目标父目录的子节点链表
+    src_file->next = 0;
+    if (dest_parent->children == 0) {
+        dest_parent->children = src_file;
+    } else {
+        // 找到链表末尾
+        last_child = dest_parent->children;
+        while (last_child->next != 0) {
+            last_child = last_child->next;
+        }
+        last_child->next = src_file;
+    }
+
+    return FS_SUCCESS;
+}

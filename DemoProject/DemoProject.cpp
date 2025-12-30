@@ -581,6 +581,321 @@ void test_fs_delete() {
     std::cout << "\n当前文件节点总数: " << fs_get_file_count() << std::endl;
 }
 
+// ==================== 第三阶段: 文件移动和重命名测试 ====================
+
+// 测试11: 文件重命名
+void test_rename() {
+    std::cout << "\n=== 测试11: 文件重命名 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* file;
+    Permissions perms;
+
+    // 首先创建一个测试文件
+    std::cout << "创建测试文件 /home/oldname.txt: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = 0;
+    status = fs_create("/home", "oldname.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 验证文件创建成功
+    std::cout << "查找 /home/oldname.txt: ";
+    file = fs_find("/home/oldname.txt");
+    std::cout << (file ? "找到" : "未找到") << std::endl;
+
+    // 重命名文件 (使用 root 权限)
+    std::cout << "\nroot 重命名 /home/oldname.txt 为 newname.txt: ";
+    status = fs_rename("/home/oldname.txt", "newname.txt", 0, 0);
+    print_fs_status(status);
+
+    // 验证重命名成功
+    std::cout << "查找 /home/oldname.txt: ";
+    file = fs_find("/home/oldname.txt");
+    std::cout << (file ? "仍存在 (错误)" : "已不存在 (正确)") << std::endl;
+
+    std::cout << "查找 /home/newname.txt: ";
+    file = fs_find("/home/newname.txt");
+    std::cout << (file ? "找到 (正确)" : "未找到 (错误)") << std::endl;
+
+    // 尝试重命名为已存在的文件名 (应该失败)
+    std::cout << "\n创建文件 /home/another.txt: ";
+    status = fs_create("/home", "another.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "尝试将 newname.txt 重命名为 another.txt (应该失败): ";
+    status = fs_rename("/home/newname.txt", "another.txt", 0, 0);
+    print_fs_status(status);
+
+    // 尝试非所有者重命名 (权限测试)
+    std::cout << "\n尝试由 bob (UID=1002) 重命名 newname.txt (所有者是 alice): ";
+    status = fs_rename("/home/newname.txt", "bobname.txt", 1002, 100);
+    print_fs_status(status);
+
+    // 尝试重命名根目录 (应该失败)
+    std::cout << "\n尝试重命名根目录 / (应该失败): ";
+    status = fs_rename("/", "root", 0, 0);
+    print_fs_status(status);
+
+    // 清理
+    std::cout << "\n清理测试文件:" << std::endl;
+    std::cout << "删除 /home/newname.txt: ";
+    status = fs_delete("/home/newname.txt");
+    print_fs_status(status);
+    std::cout << "删除 /home/another.txt: ";
+    status = fs_delete("/home/another.txt");
+    print_fs_status(status);
+}
+
+// 测试12: 目录重命名
+void test_rename_directory() {
+    std::cout << "\n=== 测试12: 目录重命名 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* dir;
+    Permissions perms;
+
+    // 创建测试目录
+    std::cout << "创建测试目录 /olddir: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = 0;
+    status = fs_create("/", "olddir", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    // 在目录中创建一个文件
+    std::cout << "在 /olddir 中创建文件 test.txt: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = 0;
+    status = fs_create("/olddir", "test.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 重命名目录
+    std::cout << "\n重命名目录 /olddir 为 newdir: ";
+    status = fs_rename("/olddir", "newdir", 0, 0);
+    print_fs_status(status);
+
+    // 验证目录重命名成功
+    std::cout << "查找 /olddir: ";
+    dir = fs_find("/olddir");
+    std::cout << (dir ? "仍存在 (错误)" : "已不存在 (正确)") << std::endl;
+
+    std::cout << "查找 /newdir: ";
+    dir = fs_find("/newdir");
+    std::cout << (dir ? "找到 (正确)" : "未找到 (错误)") << std::endl;
+
+    // 验证目录中的文件仍然可以访问
+    std::cout << "查找 /newdir/test.txt: ";
+    FileNode* file = fs_find("/newdir/test.txt");
+    std::cout << (file ? "找到 (正确)" : "未找到 (错误)") << std::endl;
+
+    // 清理
+    std::cout << "\n清理测试目录:" << std::endl;
+    std::cout << "删除 /newdir/test.txt: ";
+    status = fs_delete("/newdir/test.txt");
+    print_fs_status(status);
+    std::cout << "删除 /newdir: ";
+    status = fs_delete("/newdir");
+    print_fs_status(status);
+}
+
+// 测试13: 移动文件
+void test_move_file() {
+    std::cout << "\n=== 测试13: 移动文件 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* file;
+    Permissions perms;
+
+    // 创建测试文件在 /home 目录
+    std::cout << "在 /home 创建文件 move_test.txt: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = 0;
+    status = fs_create("/home", "move_test.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 移动文件到 /alice 目录
+    std::cout << "\nroot 移动 /home/move_test.txt 到 /alice 目录: ";
+    status = fs_move("/home/move_test.txt", "/alice", 0, 0);
+    print_fs_status(status);
+
+    // 验证移动成功
+    std::cout << "查找 /home/move_test.txt: ";
+    file = fs_find("/home/move_test.txt");
+    std::cout << (file ? "仍存在 (错误)" : "已不存在 (正确)") << std::endl;
+
+    std::cout << "查找 /alice/move_test.txt: ";
+    file = fs_find("/alice/move_test.txt");
+    std::cout << (file ? "找到 (正确)" : "未找到 (错误)") << std::endl;
+
+    // 尝试移动到不存在的目录 (应该失败)
+    std::cout << "\n创建另一个测试文件: ";
+    status = fs_create("/home", "test2.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "尝试移动到不存在的目录 /nonexistent (应该失败): ";
+    status = fs_move("/home/test2.txt", "/nonexistent", 0, 0);
+    print_fs_status(status);
+
+    // 尝试移动到目标位置已存在同名文件 (应该失败)
+    std::cout << "\n在 /alice 创建文件 duplicate.txt: ";
+    status = fs_create("/alice", "duplicate.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "在 /home 创建文件 duplicate.txt: ";
+    status = fs_create("/home", "duplicate.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "尝试移动 /home/duplicate.txt 到 /alice (同名文件已存在，应该失败): ";
+    status = fs_move("/home/duplicate.txt", "/alice", 0, 0);
+    print_fs_status(status);
+
+    // 尝试移动到非目录 (应该失败)
+    std::cout << "\n尝试移动 /home/duplicate.txt 到 /alice/duplicate.txt (不是目录，应该失败): ";
+    status = fs_move("/home/duplicate.txt", "/alice/duplicate.txt", 0, 0);
+    print_fs_status(status);
+
+    // 清理
+    std::cout << "\n清理测试文件:" << std::endl;
+    std::cout << "删除 /alice/move_test.txt: ";
+    status = fs_delete("/alice/move_test.txt");
+    print_fs_status(status);
+    std::cout << "删除 /alice/duplicate.txt: ";
+    status = fs_delete("/alice/duplicate.txt");
+    print_fs_status(status);
+    std::cout << "删除 /home/test2.txt: ";
+    status = fs_delete("/home/test2.txt");
+    print_fs_status(status);
+    std::cout << "删除 /home/duplicate.txt: ";
+    status = fs_delete("/home/duplicate.txt");
+    print_fs_status(status);
+}
+
+// 测试14: 移动目录
+void test_move_directory() {
+    std::cout << "\n=== 测试14: 移动目录 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* dir;
+    Permissions perms;
+
+    // 创建目录结构: /source 和 /source/file.txt
+    std::cout << "创建目录 /source: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = 0;
+    status = fs_create("/", "source", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "在 /source 创建文件 file.txt: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = 0;
+    status = fs_create("/source", "file.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 移动整个目录到 /home
+    std::cout << "\n移动目录 /source 到 /home: ";
+    status = fs_move("/source", "/home", 0, 0);
+    print_fs_status(status);
+
+    // 验证移动成功
+    std::cout << "查找 /source: ";
+    dir = fs_find("/source");
+    std::cout << (dir ? "仍存在 (错误)" : "已不存在 (正确)") << std::endl;
+
+    std::cout << "查找 /home/source: ";
+    dir = fs_find("/home/source");
+    std::cout << (dir ? "找到 (正确)" : "未找到 (错误)") << std::endl;
+
+    // 验证目录中的文件
+    std::cout << "查找 /home/source/file.txt: ";
+    FileNode* file = fs_find("/home/source/file.txt");
+    std::cout << (file ? "找到 (正确)" : "未找到 (错误)") << std::endl;
+
+    // 尝试将目录移动到自己的子目录 (应该失败)
+    std::cout << "\n在 /home/source 创建子目录 subdir: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = 0;
+    status = fs_create("/home/source", "subdir", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "尝试将 /home/source 移动到自己的子目录 /home/source/subdir (应该失败): ";
+    status = fs_move("/home/source", "/home/source/subdir", 0, 0);
+    print_fs_status(status);
+
+    // 清理
+    std::cout << "\n清理测试目录:" << std::endl;
+    std::cout << "删除 /home/source/subdir: ";
+    status = fs_delete("/home/source/subdir");
+    print_fs_status(status);
+    std::cout << "删除 /home/source/file.txt: ";
+    status = fs_delete("/home/source/file.txt");
+    print_fs_status(status);
+    std::cout << "删除 /home/source: ";
+    status = fs_delete("/home/source");
+    print_fs_status(status);
+}
+
+// 测试15: 权限限制的移动和重命名
+void test_move_rename_permissions() {
+    std::cout << "\n=== 测试15: 权限限制的移动和重命名 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* file;
+    Permissions perms;
+
+    // alice 创建一个文件
+    std::cout << "alice 创建 /alice/private.txt (权限 rwx------): ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = 0;
+    perms.other_perms = 0;
+    status = fs_create("/alice", "private.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // bob 尝试重命名 alice 的文件 (应该失败)
+    std::cout << "bob 尝试重命名 /alice/private.txt (应该失败): ";
+    status = fs_rename("/alice/private.txt", "public.txt", 1002, 100);
+    print_fs_status(status);
+
+    // bob 尝试移动 alice 的文件 (应该失败)
+    std::cout << "bob 尝试移动 /alice/private.txt 到 /home (应该失败): ";
+    status = fs_move("/alice/private.txt", "/home", 1002, 100);
+    print_fs_status(status);
+
+    // alice 自己可以重命名
+    std::cout << "\nalice 重命名自己的文件 private.txt 为 mydata.txt: ";
+    status = fs_rename("/alice/private.txt", "mydata.txt", 1001, 100);
+    print_fs_status(status);
+
+    // 验证重命名成功
+    std::cout << "查找 /alice/private.txt: ";
+    file = fs_find("/alice/private.txt");
+    std::cout << (file ? "仍存在 (错误)" : "已不存在 (正确)") << std::endl;
+
+    std::cout << "查找 /alice/mydata.txt: ";
+    file = fs_find("/alice/mydata.txt");
+    std::cout << (file ? "找到 (正确)" : "未找到 (错误)") << std::endl;
+
+    // root 可以操作任何文件
+    std::cout << "\nroot 重命名 alice 的文件 mydata.txt 为 root_data.txt: ";
+    status = fs_rename("/alice/mydata.txt", "root_data.txt", 0, 0);
+    print_fs_status(status);
+
+    std::cout << "验证: 查找 /alice/root_data.txt: ";
+    file = fs_find("/alice/root_data.txt");
+    std::cout << (file ? "找到" : "未找到") << std::endl;
+
+    // 清理
+    std::cout << "\n清理测试文件:" << std::endl;
+    std::cout << "删除 /alice/root_data.txt: ";
+    status = fs_delete("/alice/root_data.txt");
+    print_fs_status(status);
+}
+
 int main()
 {
     SetConsoleOutputCP(65001);
@@ -606,6 +921,14 @@ int main()
     test_permission_check();
     test_chmod();
     test_fs_delete();
+
+    // 第三阶段: 文件移动和重命名测试
+    std::cout << "\n############ 第三阶段: 文件移动和重命名测试 ############" << std::endl;
+    test_rename();
+    test_rename_directory();
+    test_move_file();
+    test_move_directory();
+    test_move_rename_permissions();
 
     std::cout << "\n========================================" << std::endl;
     std::cout << "所有测试完成!" << std::endl;
