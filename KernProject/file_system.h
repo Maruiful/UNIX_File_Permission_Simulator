@@ -123,6 +123,28 @@ FileSystemStatus fs_rename(const char* path, const char* new_name, int uid, int 
  */
 FileSystemStatus fs_move(const char* src_path, const char* dest_path, int uid, int gid);
 
+/**
+ * 复制文件到指定目录
+ * @param src_path 源文件完整路径
+ * @param dest_path 目标目录完整路径
+ * @param uid 执行操作的用户ID
+ * @param gid 执行操作的用户组ID
+ * @return 操作状态码
+ * @return FS_SUCCESS - 复制成功
+ * @return FS_ERR_INVALID - 参数无效
+ * @return FS_ERR_NOT_FOUND - 源文件或目标目录不存在
+ * @return FS_ERR_EXISTS - 目标目录中已有同名文件
+ * @return FS_ERR_NOT_DIR - 目标路径不是目录
+ * @return FS_ERR_PERMISSION - 权限不足
+ * @return FS_ERR_LIMIT - 达到文件数量限制
+ * @note 需要对源文件有读权限
+ * @note 需要对目标父目录有写权限
+ * @note 只能复制普通文件，不能复制目录
+ * @note 新文件由执行复制操作的用户所有
+ * @note 新文件继承源文件的权限设置
+ */
+FileSystemStatus fs_copy(const char* src_path, const char* dest_path, int uid, int gid);
+
 // ==================== 权限检查函数 ====================
 
 /**

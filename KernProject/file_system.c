@@ -836,3 +836,95 @@ FileSystemStatus fs_move(const char* src_path, const char* dest_path, int uid, i
 
     return FS_SUCCESS;
 }
+
+/**
+ * 复制文件到指定目录
+ */
+FileSystemStatus fs_copy(const char* src_path, const char* dest_path, int uid, int gid)
+{
+    FileNode* src_file;
+    FileNode* dest_parent;
+    FileNode* new_file;
+    FileNode* last_child;
+    char filename[MAX_FILENAME_LEN];
+
+    // 参数验证
+    if (src_path == 0 || dest_path == 0) {
+        return FS_ERR_INVALID;
+    }
+
+    // 查找源文件
+    src_file = fs_find(src_path);
+    if (src_file == 0) {
+        return FS_ERR_NOT_FOUND;
+    }
+
+    // 只能复制普通文件，不能复制目录
+    if (src_file->type != FILE_TYPE_REGULAR) {
+        return FS_ERR_INVALID;
+    }
+
+    // 检查权限 - 需要对源文件有读权限
+    if (fs_check_permission(src_file, uid, gid, OP_READ) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 查找目标目录
+    dest_parent = fs_find(dest_path);
+    if (dest_parent == 0) {
+        return FS_ERR_NOT_FOUND;
+    }
+
+    // 目标必须是目录
+    if (dest_parent->type != FILE_TYPE_DIRECTORY) {
+        return FS_ERR_NOT_DIR;
+    }
+
+    // 检查权限 - 需要对目标父目录有写权限
+    if (fs_check_permission(dest_parent, uid, gid, OP_WRITE) != PERM_GRANTED) {
+        return FS_ERR_PERMISSION;
+    }
+
+    // 保存源文件名
+    str_copy(filename, src_file->filename);
+
+    // 检查目标目录中是否已有同名文件
+    if (fs_find_in_directory(dest_parent, filename) != 0) {
+        return FS_ERR_EXISTS;
+    }
+
+    // 检查目录文件数量限制
+    if (count_directory_children(dest_parent) >= MAX_FILES_PER_DIR) {
+        return FS_ERR_LIMIT;
+    }
+
+    // 分配新的文件节点
+    new_file = allocate_file_node();
+    if (new_file == 0) {
+        return FS_ERR_LIMIT;
+    }
+
+    // 初始化新文件节点
+    str_copy(new_file->filename, filename);
+    new_file->type = src_file->type;           // 继承文件类型
+    new_file->uid = uid;                        // 新文件由执行操作的用户所有
+    new_file->gid = gid;                        // 使用执行操作的用户组
+    new_file->perms = src_file->perms;          // 继承源文件的权限
+    new_file->parent = dest_parent;
+    new_file->children = 0;                     // 普通文件没有子节点
+    new_file->next = 0;
+
+    // 添加到目标父目录的子节点链表
+    if (dest_parent->children == 0) {
+        dest_parent->children = new_file;
+    } else {
+        // 找到链表末尾
+        last_child = dest_parent->children;
+        while (last_child->next != 0) {
+            last_child = last_child->next;
+        }
+        last_child->next = new_file;
+    }
+
+    return FS_SUCCESS;
+}

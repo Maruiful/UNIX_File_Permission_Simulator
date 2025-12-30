@@ -896,6 +896,137 @@ void test_move_rename_permissions() {
     print_fs_status(status);
 }
 
+// 测试16: 文件复制
+void test_copy() {
+    std::cout << "\n=== 测试16: 文件复制 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* file;
+    Permissions perms;
+
+    // 创建测试文件
+    std::cout << "创建源文件 /home/original.txt (所有者 alice, 权限 rw-r--r--): ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = PERM_READ;
+    status = fs_create("/home", "original.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // root 复制文件到 /alice 目录
+    std::cout << "\nroot 复制 /home/original.txt 到 /alice: ";
+    status = fs_copy("/home/original.txt", "/alice", 0, 0);
+    print_fs_status(status);
+
+    // 验证复制成功
+    std::cout << "查找 /home/original.txt (源文件): ";
+    file = fs_find("/home/original.txt");
+    std::cout << (file ? "存在 (正确)" : "不存在 (错误)") << std::endl;
+
+    std::cout << "查找 /alice/original.txt (副本): ";
+    file = fs_find("/alice/original.txt");
+    if (file) {
+        std::cout << "存在 (正确)" << std::endl;
+        std::cout << "  所有者: UID=" << file->uid << " (应该是 root UID=0)" << std::endl;
+        std::cout << "  权限: ";
+        print_permissions(file->perms);
+        std::cout << " (继承源文件)" << std::endl;
+    } else {
+        std::cout << "不存在 (错误)" << std::endl;
+    }
+
+    // alice 复制文件到同一目录（重命名效果）
+    std::cout << "\nalice 复制 /home/original.txt 到 /home (创建副本): ";
+    status = fs_copy("/home/original.txt", "/home", 1001, 100);
+    print_fs_status(status);
+
+    std::cout << "查找 /home/original.txt: ";
+    file = fs_find("/home/original.txt");
+    std::cout << (file ? "存在" : "不存在") << std::endl;
+
+    // 尝试复制到目标位置已存在同名文件 (应该失败)
+    std::cout << "\n再次尝试 root 复制 /home/original.txt 到 /alice (同名文件已存在，应该失败): ";
+    status = fs_copy("/home/original.txt", "/alice", 0, 0);
+    print_fs_status(status);
+
+    // 尝试复制不存在的文件 (应该失败)
+    std::cout << "\n尝试复制不存在的文件 /nonexistent.txt (应该失败): ";
+    status = fs_copy("/nonexistent.txt", "/alice", 0, 0);
+    print_fs_status(status);
+
+    // 尝试复制到不存在的目录 (应该失败)
+    std::cout << "\n尝试复制 /home/original.txt 到不存在的目录 /nonexistent (应该失败): ";
+    status = fs_copy("/home/original.txt", "/nonexistent", 0, 0);
+    print_fs_status(status);
+
+    // 尝试复制目录 (应该失败，只能复制文件)
+    std::cout << "\n创建测试目录 /testdir: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = 0;
+    status = fs_create("/", "testdir", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "尝试复制目录 /testdir (应该失败): ";
+    status = fs_copy("/testdir", "/alice", 0, 0);
+    print_fs_status(status);
+
+    // 尝试复制到非目录 (应该失败)
+    std::cout << "\n尝试复制 /home/original.txt 到文件路径 /alice/original.txt (应该失败): ";
+    status = fs_copy("/home/original.txt", "/alice/original.txt", 0, 0);
+    print_fs_status(status);
+
+    // 权限测试：尝试复制无读权限的文件
+    std::cout << "\n创建无读权限的文件 /home/noread.txt (权限 ---): ";
+    perms.owner_perms = 0;  // 无权限
+    perms.group_perms = 0;
+    perms.other_perms = 0;
+    status = fs_create("/home", "noread.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "bob 尝试复制无读权限的 /home/noread.txt (应该失败): ";
+    status = fs_copy("/home/noread.txt", "/alice", 1002, 100);
+    print_fs_status(status);
+
+    // 权限测试：目标目录无写权限
+    std::cout << "\n创建目录 /readonly (权限 r-xr-xr-x, 所有者 alice, 无写权限): ";
+    perms.owner_perms = PERM_READ | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = PERM_READ | PERM_EXECUTE;
+    status = fs_create("/", "readonly", 1001, 100, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "alice 尝试复制 /home/original.txt 到自己创建的无写权限的 /readonly (应该失败): ";
+    status = fs_copy("/home/original.txt", "/readonly", 1001, 100);
+    print_fs_status(status);
+
+    // 清理
+    std::cout << "\n清理测试文件:" << std::endl;
+    std::cout << "删除 /home/original.txt: ";
+    status = fs_delete("/home/original.txt");
+    print_fs_status(status);
+    std::cout << "删除 /alice/original.txt: ";
+    status = fs_delete("/alice/original.txt");
+    print_fs_status(status);
+    std::cout << "删除 /home/noread.txt: ";
+    status = fs_delete("/home/noread.txt");
+    print_fs_status(status);
+    std::cout << "删除 /testdir: ";
+    status = fs_delete("/testdir");
+    print_fs_status(status);
+    // /readonly 目录可能包含文件，需要先用 root 删除其中的文件
+    std::cout << "删除 /readonly/original.txt (如果存在): ";
+    file = fs_find("/readonly/original.txt");
+    if (file) {
+        status = fs_delete("/readonly/original.txt");
+        print_fs_status(status);
+    } else {
+        std::cout << "文件不存在，跳过" << std::endl;
+    }
+    std::cout << "删除 /readonly: ";
+    status = fs_delete("/readonly");
+    print_fs_status(status);
+}
+
 int main()
 {
     SetConsoleOutputCP(65001);
@@ -929,6 +1060,7 @@ int main()
     test_move_file();
     test_move_directory();
     test_move_rename_permissions();
+    test_copy();
 
     std::cout << "\n========================================" << std::endl;
     std::cout << "所有测试完成!" << std::endl;
