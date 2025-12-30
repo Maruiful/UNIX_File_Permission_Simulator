@@ -149,9 +149,13 @@
   <ItemGroup>
     <ClInclude Include="types.h" />
     <ClInclude Include="user_manager.h" />
+    <ClInclude Include="file_system.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="user_manager.c" />
+    <ClCompile Include="file_system.c">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
