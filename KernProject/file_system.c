@@ -295,12 +295,127 @@ int fs_parse_path(const char* path, char* dirname, char* filename)
 }
 
 /**
- * 根据路径查找文件节点
+ * 规范化路径字符串
+ * 处理 . 和 ..，合并连续的 /，移除末尾的 / (根目录除外)
  */
-FileNode* fs_find(const char* path)
+int fs_normalize_path(const char* input, char* output)
 {
-    char dirname[MAX_PATH_LEN];
-    char filename[MAX_FILENAME_LEN];
+    char components[MAX_PATH_LEN / 2][MAX_FILENAME_LEN];  // 路径组件数组
+    int component_count = 0;
+    int i = 0;
+    int j = 0;
+    char current_component[MAX_FILENAME_LEN];
+    int is_absolute = 0;
+
+    // 参数验证
+    if (input == 0 || output == 0) {
+        return -1;
+    }
+
+    // 判断是否为绝对路径
+    if (input[0] == '/') {
+        is_absolute = 1;
+        i = 1;  // 跳过开头的 /
+    }
+
+    // 解析路径组件
+    while (input[i] != '\0') {
+        // 跳过连续的 /
+        while (input[i] == '/') {
+            i++;
+        }
+
+        if (input[i] == '\0') {
+            break;
+        }
+
+        // 提取当前组件
+        j = 0;
+        while (input[i] != '\0' && input[i] != '/' && j < MAX_FILENAME_LEN - 1) {
+            current_component[j++] = input[i++];
+        }
+        current_component[j] = '\0';
+
+        // 处理特殊组件
+        if (str_compare(current_component, ".") == 0) {
+            // 当前目录，忽略
+            continue;
+        } else if (str_compare(current_component, "..") == 0) {
+            // 父目录，弹出上一个组件(如果有的话)
+            if (component_count > 0) {
+                component_count--;
+            }
+            // 如果是绝对路径，不能超出根目录
+            // 如果是相对路径，可以添加 .. 组件
+            if (!is_absolute && component_count == 0) {
+                // 保留 .. 组件
+                if (component_count < MAX_PATH_LEN / 2) {
+                    str_copy(components[component_count++], "..");
+                }
+            }
+        } else {
+            // 普通组件，添加到数组
+            if (component_count < MAX_PATH_LEN / 2) {
+                str_copy(components[component_count++], current_component);
+            }
+        }
+    }
+
+    // 构建规范化路径
+    i = 0;
+
+    if (is_absolute) {
+        output[i++] = '/';
+    }
+
+    for (j = 0; j < component_count; j++) {
+        int len = str_length(components[j]);
+        int k;
+
+        // 检查缓冲区空间
+        if (i + len + 1 >= MAX_PATH_LEN) {
+            return -1;  // 路径过长
+        }
+
+        // 添加 /
+        if (j > 0 || (!is_absolute && j == 0)) {
+            // 对于相对路径的第一个组件前不需要加 /
+            // 但对于后续组件需要加 /
+            if (j > 0 || !is_absolute) {
+                if (i > 0) {
+                    output[i++] = '/';
+                }
+            }
+        }
+
+        // 添加组件
+        for (k = 0; k < len; k++) {
+            output[i++] = components[j][k];
+        }
+    }
+
+    // 处理空路径
+    if (i == 0) {
+        if (is_absolute) {
+            output[i++] = '/';
+        } else {
+            // 相对路径为空，使用 .
+            output[i++] = '.';
+        }
+    }
+
+    output[i] = '\0';
+
+    return 0;
+}
+
+/**
+ * 从指定目录开始查找相对路径
+ * 支持 . (当前目录) 和 .. (父目录)
+ */
+FileNode* fs_find_relative(FileNode* current_dir, const char* path)
+{
+    char normalized[MAX_PATH_LEN];
     FileNode* current;
     int i;
     int start;
@@ -312,24 +427,34 @@ FileNode* fs_find(const char* path)
         return 0;
     }
 
-    // 处理根目录
-    if (str_compare(path, "/") == 0) {
-        return g_root;
-    }
-
-    // 路径必须以 / 开头
-    if (path[0] != '/') {
+    // 规范化路径
+    if (fs_normalize_path(path, normalized) != 0) {
         return 0;
     }
 
-    // 从根目录开始遍历
-    current = g_root;
-    start = 1;  // 跳过开头的 /
+    // 处理绝对路径
+    if (normalized[0] == '/') {
+        return fs_find(normalized);
+    }
 
-    while (path[start] != '\0') {
+    // 处理相对路径
+    // 从当前目录开始
+    current = current_dir;
+    if (current == 0) {
+        current = g_root;  // 默认从根目录开始
+    }
+
+    // 必须是目录
+    if (current->type != FILE_TYPE_DIRECTORY) {
+        return 0;
+    }
+
+    start = 0;
+
+    while (normalized[start] != '\0') {
         // 查找下一个 /
         end = start;
-        while (path[end] != '\0' && path[end] != '/') {
+        while (normalized[end] != '\0' && normalized[end] != '/') {
             end++;
         }
 
@@ -339,18 +464,27 @@ FileNode* fs_find(const char* path)
         }
 
         for (i = 0; i < end - start; i++) {
-            component[i] = path[start + i];
+            component[i] = normalized[start + i];
         }
         component[end - start] = '\0';
 
-        // 在当前目录中查找
-        current = fs_find_in_directory(current, component);
-        if (current == 0) {
-            return 0;  // 路径不存在
+        // 处理 ..
+        if (str_compare(component, "..") == 0) {
+            // 移动到父目录
+            if (current->parent != 0) {
+                current = current->parent;
+            }
+            // 如果已经在根目录，保持不动
+        } else {
+            // 在当前目录中查找
+            current = fs_find_in_directory(current, component);
+            if (current == 0) {
+                return 0;  // 路径不存在
+            }
         }
 
         // 移动到下一个组件
-        if (path[end] == '/') {
+        if (normalized[end] == '/') {
             start = end + 1;
         } else {
             break;
@@ -421,6 +555,72 @@ PermissionResult fs_check_permission(FileNode* file, int uid, int gid, Operation
     } else {
         return PERM_DENIED;
     }
+}
+
+/**
+ * 根据路径查找文件节点
+ */
+FileNode* fs_find(const char* path)
+{
+    char dirname[MAX_PATH_LEN];
+    char filename[MAX_FILENAME_LEN];
+    FileNode* current;
+    int i;
+    int start;
+    int end;
+    char component[MAX_FILENAME_LEN];
+
+    // 参数验证
+    if (path == 0) {
+        return 0;
+    }
+
+    // 处理根目录
+    if (str_compare(path, "/") == 0) {
+        return g_root;
+    }
+
+    // 路径必须以 / 开头
+    if (path[0] != '/') {
+        return 0;
+    }
+
+    // 从根目录开始遍历
+    current = g_root;
+    start = 1;  // 跳过开头的 /
+
+    while (path[start] != '\0') {
+        // 查找下一个 /
+        end = start;
+        while (path[end] != '\0' && path[end] != '/') {
+            end++;
+        }
+
+        // 提取路径组件
+        if (end - start >= MAX_FILENAME_LEN) {
+            return 0;  // 文件名过长
+        }
+
+        for (i = 0; i < end - start; i++) {
+            component[i] = path[start + i];
+        }
+        component[end - start] = '\0';
+
+        // 在当前目录中查找
+        current = fs_find_in_directory(current, component);
+        if (current == 0) {
+            return 0;  // 路径不存在
+        }
+
+        // 移动到下一个组件
+        if (path[end] == '/') {
+            start = end + 1;
+        } else {
+            break;
+        }
+    }
+
+    return current;
 }
 
 // ==================== 文件和目录操作函数 ====================

@@ -204,6 +204,31 @@ FileNode* fs_find_in_directory(FileNode* dir, const char* filename);
 int fs_parse_path(const char* path, char* dirname, char* filename);
 
 /**
+ * 规范化路径字符串
+ * @param input 输入路径(可能包含 . 或 .. 或多个连续的 /)
+ * @param output 输出缓冲区(至少 MAX_PATH_LEN 大小)
+ * @return 成功返回0，失败返回-1
+ * @note 处理 . (当前目录) 和 .. (父目录)
+ * @note 合并连续的 /
+ * @note 移除末尾的 / (根目录除外)
+ * @note 支持相对路径和绝对路径
+ * @note 示例: "/home/../user/./file.txt" -> "/user/file.txt"
+ */
+int fs_normalize_path(const char* input, char* output);
+
+/**
+ * 从指定目录开始查找相对路径
+ * @param current_dir 当前目录节点
+ * @param path 相对路径(不以 / 开头)或绝对路径
+ * @return 找到的文件节点，未找到返回NULL
+ * @note 支持 . (当前目录)
+ * @note 支持 .. (父目录)
+ * @note 不以 / 开头的路径视为相对路径
+ * @note 以 / 开头的路径视为绝对路径，忽略 current_dir
+ */
+FileNode* fs_find_relative(FileNode* current_dir, const char* path);
+
+/**
  * 获取文件数量统计
  * @return 当前系统中的文件节点总数
  */

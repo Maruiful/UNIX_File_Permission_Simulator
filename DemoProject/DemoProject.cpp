@@ -1227,6 +1227,177 @@ void test_delete_recursive() {
     }
 }
 
+void test_normalize_path() {
+    std::cout << "\n=== 测试18: 路径规范化功能 ===" << std::endl;
+
+    char output[MAX_PATH_LEN];
+    int result;
+
+    // 测试1: 处理 .
+    std::cout << "\n测试1: 处理 . (当前目录)" << std::endl;
+    result = fs_normalize_path("/home/./user", output);
+    std::cout << "  /home/./user -> \"" << output << "\" (预期: /home/user)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试2: 处理 ..
+    std::cout << "\n测试2: 处理 .. (父目录)" << std::endl;
+    result = fs_normalize_path("/home/../user", output);
+    std::cout << "  /home/../user -> \"" << output << "\" (预期: /user)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试3: 处理多个 ..
+    std::cout << "\n测试3: 处理多个 .." << std::endl;
+    result = fs_normalize_path("/a/b/c/../../d", output);
+    std::cout << "  /a/b/c/../../d -> \"" << output << "\" (预期: /a/d)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试4: 处理连续的 /
+    std::cout << "\n测试4: 处理连续的 /" << std::endl;
+    result = fs_normalize_path("/home///user", output);
+    std::cout << "  /home///user -> \"" << output << "\" (预期: /home/user)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试5: 处理混合的 . 和 ..
+    std::cout << "\n测试5: 处理混合的 . 和 .." << std::endl;
+    result = fs_normalize_path("/home/./user/../admin/.", output);
+    std::cout << "  /home/./user/../admin/. -> \"" << output << "\" (预期: /home/admin)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试6: 根目录的特殊情况
+    std::cout << "\n测试6: 根目录的 .. 不能超出根目录" << std::endl;
+    result = fs_normalize_path("/../..", output);
+    std::cout << "  /../.. -> \"" << output << "\" (预期: /)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试7: 移除末尾的 /
+    std::cout << "\n测试7: 移除末尾的 /" << std::endl;
+    result = fs_normalize_path("/home/user/", output);
+    std::cout << "  /home/user/ -> \"" << output << "\" (预期: /home/user)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试8: 相对路径
+    std::cout << "\n测试8: 相对路径规范化" << std::endl;
+    result = fs_normalize_path("./user", output);
+    std::cout << "  ./user -> \"" << output << "\" (预期: user)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试9: 相对路径中的 ..
+    result = fs_normalize_path("../home", output);
+    std::cout << "  ../home -> \"" << output << "\" (预期: ../home)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+
+    // 测试10: 复杂路径
+    std::cout << "\n测试10: 复杂路径" << std::endl;
+    result = fs_normalize_path("/a/b/../c/./d/e/../f", output);
+    std::cout << "  /a/b/../c/./d/e/../f -> \"" << output << "\" (预期: /a/c/d/f)" << std::endl;
+    std::cout << "  结果: " << (result == 0 ? "成功" : "失败") << std::endl;
+}
+
+void test_find_relative() {
+    std::cout << "\n=== 测试19: 相对路径查找功能 ===" << std::endl;
+
+    FileSystemStatus status;
+    FileNode* file;
+    FileNode* current;
+    Permissions perms;
+
+    // 创建测试目录结构
+    std::cout << "\n创建测试目录结构:" << std::endl;
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = 0;
+
+    std::cout << "  创建 /home: ";
+    status = fs_create("/", "home", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /home/user: ";
+    status = fs_create("/home", "user", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "  创建 /home/user/file.txt: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = 0;
+    status = fs_create("/home/user", "file.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "  创建 /home/admin: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = 0;
+    status = fs_create("/home", "admin", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    // 测试1: 从 /home 查找相对路径 ./user
+    std::cout << "\n测试1: 从 /home 查找 ./user" << std::endl;
+    current = fs_find("/home");
+    std::cout << "  当前目录: /home" << std::endl;
+    file = fs_find_relative(current, "./user");
+    std::cout << "  查找 ./user: " << (file ? "找到" : "未找到") << std::endl;
+
+    // 测试2: 从 /home/user 查找 ../admin
+    std::cout << "\n测试2: 从 /home/user 查找 ../admin" << std::endl;
+    current = fs_find("/home/user");
+    std::cout << "  当前目录: /home/user" << std::endl;
+    file = fs_find_relative(current, "../admin");
+    std::cout << "  查找 ../admin: " << (file ? "找到" : "未找到") << std::endl;
+
+    // 测试3: 从 /home/user 查找 ./file.txt
+    std::cout << "\n测试3: 从 /home/user 查找 ./file.txt" << std::endl;
+    current = fs_find("/home/user");
+    std::cout << "  当前目录: /home/user" << std::endl;
+    file = fs_find_relative(current, "./file.txt");
+    std::cout << "  查找 ./file.txt: " << (file ? "找到" : "未找到") << std::endl;
+
+    // 测试4: 从 /home/user 查找 ../admin/../user/file.txt
+    std::cout << "\n测试4: 从 /home/user 查找 ../admin/../user/file.txt" << std::endl;
+    current = fs_find("/home/user");
+    std::cout << "  当前目录: /home/user" << std::endl;
+    file = fs_find_relative(current, "../admin/../user/file.txt");
+    std::cout << "  查找 ../admin/../user/file.txt: " << (file ? "找到" : "未找到") << std::endl;
+
+    // 测试5: 使用绝对路径（应忽略当前目录）
+    std::cout << "\n测试5: 使用绝对路径 /home/admin" << std::endl;
+    current = fs_find("/home/user");
+    std::cout << "  当前目录: /home/user" << std::endl;
+    file = fs_find_relative(current, "/home/admin");
+    std::cout << "  查找 /home/admin: " << (file ? "找到" : "未找到") << std::endl;
+
+    // 测试6: 多层 ..
+    std::cout << "\n测试6: 从 /home/user 查找 ../../.." << std::endl;
+    current = fs_find("/home/user");
+    std::cout << "  当前目录: /home/user" << std::endl;
+    FileNode* root = fs_find("/");
+    file = fs_find_relative(current, "../../..");
+    std::cout << "  查找 ../../.. (应到达根目录): " << (file ? "找到" : "未找到") << std::endl;
+    if (file) {
+        std::cout << "  结果是否为根目录: " << (file == root ? "是" : "否") << std::endl;
+    }
+
+    // 测试7: 查找不存在的路径
+    std::cout << "\n测试7: 查找不存在的路径" << std::endl;
+    current = fs_find("/home");
+    std::cout << "  当前目录: /home" << std::endl;
+    file = fs_find_relative(current, "./nonexistent");
+    std::cout << "  查找 ./nonexistent: " << (file ? "找到(错误)" : "未找到(正确)") << std::endl;
+
+    // 清理
+    std::cout << "\n清理测试文件:" << std::endl;
+    std::cout << "删除 /home/user/file.txt: ";
+    status = fs_delete("/home/user/file.txt");
+    print_fs_status(status);
+    std::cout << "删除 /home/user: ";
+    status = fs_delete("/home/user");
+    print_fs_status(status);
+    std::cout << "删除 /home/admin: ";
+    status = fs_delete("/home/admin");
+    print_fs_status(status);
+    std::cout << "删除 /home: ";
+    status = fs_delete("/home");
+    print_fs_status(status);
+}
+
 int main()
 {
     SetConsoleOutputCP(65001);
@@ -1262,6 +1433,11 @@ int main()
     test_move_rename_permissions();
     test_copy();
     test_delete_recursive();
+
+    // 第三阶段续: 路径解析功能测试
+    std::cout << "\n############ 第三阶段续: 路径解析功能测试 ############" << std::endl;
+    test_normalize_path();
+    test_find_relative();
 
     std::cout << "\n========================================" << std::endl;
     std::cout << "所有测试完成!" << std::endl;
