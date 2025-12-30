@@ -21,9 +21,15 @@
     <ClInclude Include="user_manager.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="file_system.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="user_manager.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="file_system.c">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

@@ -306,40 +306,61 @@ void test_fs_create() {
     FileSystemStatus status;
     Permissions perms;
 
-    // 在根目录创建文件 test.txt (所有者 alice)
-    std::cout << "创建 /test.txt (所有者 alice, 权限 rw-r--r--): ";
+    // root 在根目录创建目录 /alice (所有者 root, 权限 rwxrwxrwx)
+    std::cout << "root 创建目录 /alice (所有者 root, 权限 rwxrwxrwx): ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.other_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    status = fs_create("/", "alice", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    // root 修改 /alice 的所有者为 alice
+    std::cout << "root 将 /alice 的所有者改为 alice: ";
+    status = fs_chown("/alice", 1001, 100);
+    print_fs_status(status);
+
+    // root 修改 /alice 的权限为 rwx------ (只有 alice 可访问)
+    std::cout << "root 修改 /alice 的权限为 rwx------: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = 0;
+    perms.other_perms = 0;
+    status = fs_chmod("/alice", perms);
+    print_fs_status(status);
+
+    // alice 在自己的目录下创建文件
+    std::cout << "alice 创建 /alice/test.txt (权限 rw-r--r--): ";
     perms.owner_perms = PERM_READ | PERM_WRITE;
     perms.group_perms = PERM_READ;
     perms.other_perms = PERM_READ;
-    status = fs_create("/", "test.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    status = fs_create("/alice", "test.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
     print_fs_status(status);
 
-    // 创建目录 /home
-    std::cout << "创建目录 /home (所有者 root, 权限 rwxr-xr-x): ";
+    // root 创建目录 /home (权限 rwxrwxrwx)
+    std::cout << "root 创建目录 /home (权限 rwxrwxrwx): ";
     perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
-    perms.group_perms = PERM_READ | PERM_EXECUTE;
-    perms.other_perms = PERM_READ | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.other_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
     status = fs_create("/", "home", 0, 0, perms, FILE_TYPE_DIRECTORY);
     print_fs_status(status);
 
-    // 在 /home 下创建文件 readme.txt
-    std::cout << "创建 /home/readme.txt (所有者 alice): ";
+    // alice 在 /home 下创建文件 readme.txt
+    std::cout << "alice 创建 /home/readme.txt: ";
     perms.owner_perms = PERM_READ | PERM_WRITE;
     perms.group_perms = PERM_READ;
     perms.other_perms = 0;
     status = fs_create("/home", "readme.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
     print_fs_status(status);
 
-    // 创建子目录 /home/user
-    std::cout << "创建目录 /home/user (所有者 alice): ";
+    // 创建子目录 /home/user (所有者 alice)
+    std::cout << "alice 创建目录 /home/user: ";
     perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
     perms.group_perms = PERM_READ | PERM_EXECUTE;
     perms.other_perms = PERM_READ | PERM_EXECUTE;
     status = fs_create("/home", "user", 1001, 100, perms, FILE_TYPE_DIRECTORY);
     print_fs_status(status);
 
-    // 在 /home/user 下创建文件 document.txt
-    std::cout << "创建 /home/user/document.txt (所有者 bob): ";
+    // alice 在 /home/user 下创建文件 document.txt (所有者 bob)
+    std::cout << "alice 创建 /home/user/document.txt (所有者 bob): ";
     perms.owner_perms = PERM_READ | PERM_WRITE;
     perms.group_perms = PERM_READ | PERM_WRITE;
     perms.other_perms = 0;
@@ -347,8 +368,8 @@ void test_fs_create() {
     print_fs_status(status);
 
     // 尝试创建重复文件 (应该失败)
-    std::cout << "再次创建 /test.txt (应该失败): ";
-    status = fs_create("/", "test.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
+    std::cout << "再次创建 /alice/test.txt (应该失败): ";
+    status = fs_create("/alice", "test.txt", 1001, 100, perms, FILE_TYPE_REGULAR);
     print_fs_status(status);
 
     std::cout << "\n当前文件节点总数: " << fs_get_file_count() << std::endl;
@@ -366,8 +387,8 @@ void test_fs_find() {
     std::cout << (file ? "找到" : "未找到") << std::endl;
 
     // 查找已存在的文件
-    std::cout << "查找 \"/test.txt\" : ";
-    file = fs_find("/test.txt");
+    std::cout << "查找 \"/alice/test.txt\" : ";
+    file = fs_find("/alice/test.txt");
     if (file) {
         std::cout << "找到 - inode=" << file->inode << ", 类型=" << (file->type == FILE_TYPE_DIRECTORY ? "目录" : "文件") << std::endl;
     } else {
@@ -415,14 +436,14 @@ void test_permission_check() {
     FileNode* file;
     PermissionResult result;
 
-    // 查找测试文件 /test.txt (所有者 alice UID=1001)
-    file = fs_find("/test.txt");
+    // 查找测试文件 /alice/test.txt (所有者 alice UID=1001)
+    file = fs_find("/alice/test.txt");
     if (!file) {
         std::cout << "错误: 找不到测试文件" << std::endl;
         return;
     }
 
-    std::cout << "\n测试文件 /test.txt (所有者 alice UID=1001, GID=100):" << std::endl;
+    std::cout << "\n测试文件 /alice/test.txt (所有者 alice UID=1001, GID=100):" << std::endl;
     std::cout << "权限: ";
     print_permissions(file->perms);
     std::cout << std::endl;
@@ -475,7 +496,7 @@ void test_chmod() {
     Permissions perms;
 
     // 查找文件
-    file = fs_find("/test.txt");
+    file = fs_find("/alice/test.txt");
     if (!file) {
         std::cout << "错误: 找不到测试文件" << std::endl;
         return;
@@ -486,15 +507,15 @@ void test_chmod() {
     std::cout << std::endl;
 
     // 修改为只读
-    std::cout << "\n修改 /test.txt 为只读 (r--r--r--): ";
+    std::cout << "\n修改 /alice/test.txt 为只读 (r--r--r--): ";
     perms.owner_perms = PERM_READ;
     perms.group_perms = PERM_READ;
     perms.other_perms = PERM_READ;
-    status = fs_chmod("/test.txt", perms);
+    status = fs_chmod("/alice/test.txt", perms);
     print_fs_status(status);
 
     // 验证修改
-    file = fs_find("/test.txt");
+    file = fs_find("/alice/test.txt");
     if (file) {
         std::cout << "新权限: ";
         print_permissions(file->perms);
@@ -511,7 +532,7 @@ void test_chmod() {
     perms.owner_perms = PERM_READ | PERM_WRITE;
     perms.group_perms = PERM_READ;
     perms.other_perms = PERM_READ;
-    status = fs_chmod("/test.txt", perms);
+    status = fs_chmod("/alice/test.txt", perms);
     print_fs_status(status);
 }
 
@@ -523,13 +544,13 @@ void test_fs_delete() {
     FileNode* file;
 
     // 删除普通文件
-    std::cout << "删除文件 /test.txt: ";
-    status = fs_delete("/test.txt");
+    std::cout << "删除文件 /alice/test.txt: ";
+    status = fs_delete("/alice/test.txt");
     print_fs_status(status);
 
     // 验证删除
-    std::cout << "验证删除 - 查找 /test.txt: ";
-    file = fs_find("/test.txt");
+    std::cout << "验证删除 - 查找 /alice/test.txt: ";
+    file = fs_find("/alice/test.txt");
     std::cout << (file ? "仍存在 (错误)" : "已删除 (正确)") << std::endl;
 
     std::cout << "当前文件节点总数: " << fs_get_file_count() << std::endl;
