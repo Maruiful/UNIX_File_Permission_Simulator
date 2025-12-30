@@ -2,6 +2,10 @@
 
 #include "types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // 用户管理函数
 
 /**
@@ -106,3 +110,7 @@ int um_get_group_count(void);
  * @return 操作状态码
  */
 GroupStatus um_delete_group(int gid);
+
+#ifdef __cplusplus
+}
+#endif

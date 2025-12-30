@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "user_manager.h"
 
 // 用户存储数组
