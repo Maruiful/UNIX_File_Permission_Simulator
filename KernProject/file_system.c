@@ -11,7 +11,7 @@ static int g_next_inode = 1;                     // 下一个可用的 inode 号
 // ==================== 内部辅助函数 ====================
 
 /**
- * 字符串长度计算（不使用标准库）
+ * 字符串长度计算（不使用标准库，带边界检查）
  * @param str 字符串
  * @return 字符串长度
  */
@@ -20,14 +20,15 @@ static int str_length(const char* str)
     int len = 0;
     if (str == 0) return 0;
 
-    while (str[len] != '\0') {
+    int max_len = MAX_PATH_LEN * 2;  // 防止无限循环
+    while (str[len] != '\0' && len < max_len) {
         len++;
     }
     return len;
 }
 
 /**
- * 字符串比较（不使用标准库）
+ * 字符串比较（不使用标准库，带边界检查）
  * @param s1 字符串1
  * @param s2 字符串2
  * @return 相等返回0，不相等返回非0
@@ -37,7 +38,8 @@ static int str_compare(const char* s1, const char* s2)
     if (s1 == 0 || s2 == 0) return -1;
 
     int i = 0;
-    while (s1[i] != '\0' && s2[i] != '\0') {
+    int max_cmp = MAX_PATH_LEN;  // 限制比较长度，防止溢出
+    while (s1[i] != '\0' && s2[i] != '\0' && i < max_cmp) {
         if (s1[i] != s2[i]) {
             return s1[i] - s2[i];
         }
@@ -47,28 +49,30 @@ static int str_compare(const char* s1, const char* s2)
 }
 
 /**
- * 字符串复制（不使用标准库）
+ * 字符串复制（不使用标准库，带边界检查）
  * @param dest 目标缓冲区
  * @param src 源字符串
+ * @param max_len 缓冲区最大长度
  */
-static void str_copy(char* dest, const char* src)
+static void str_copy(char* dest, const char* src, int max_len)
 {
     if (dest == 0 || src == 0) return;
 
     int i = 0;
-    while (src[i] != '\0') {
+    while (src[i] != '\0' && i < max_len - 1) {  // 保留空间给 '\0'
         dest[i] = src[i];
         i++;
     }
-    dest[i] = '\0';
+    dest[i] = '\0';  // 确保以 null 结尾
 }
 
 /**
- * 字符串拼接（不使用标准库）
- * @param dest 目标缓冲区（必须包含足够空间）
+ * 字符串拼接（不使用标准库，带边界检查）
+ * @param dest 目标缓冲区
  * @param src 要追加的源字符串
+ * @param max_len 缓冲区最大长度
  */
-static void str_concat(char* dest, const char* src)
+static void str_concat(char* dest, const char* src, int max_len)
 {
     if (dest == 0 || src == 0) return;
 
@@ -76,15 +80,15 @@ static void str_concat(char* dest, const char* src)
     int j = 0;
 
     // 找到 dest 的末尾
-    while (dest[i] != '\0') {
+    while (dest[i] != '\0' && i < max_len) {
         i++;
     }
 
     // 追加 src
-    while (src[j] != '\0') {
+    while (src[j] != '\0' && i < max_len - 1) {  // 保留空间给 '\0'
         dest[i++] = src[j++];
     }
-    dest[i] = '\0';
+    dest[i] = '\0';  // 确保以 null 结尾
 }
 
 /**
@@ -192,7 +196,7 @@ void fs_init(void)
     }
 
     // 初始化根目录属性
-    str_copy(root->filename, "");
+    str_copy(root->filename, "", MAX_FILENAME_LEN);
     root->type = FILE_TYPE_DIRECTORY;
     root->uid = 0;                    // root 用户
     root->gid = 0;                    // root 组
@@ -254,7 +258,7 @@ FileNode* fs_find_in_directory(FileNode* dir, const char* filename)
 }
 
 /**
- * 路径解析辅助函数
+ * 路径解析辅助函数(带边界检查)
  */
 int fs_parse_path(const char* path, char* dirname, char* filename)
 {
@@ -268,8 +272,8 @@ int fs_parse_path(const char* path, char* dirname, char* filename)
     }
 
     len = str_length(path);
-    if (len == 0) {
-        return -1;
+    if (len == 0 || len >= MAX_PATH_LEN) {
+        return -1;  // 路径过长或为空
     }
 
     // 路径必须以 / 开头
@@ -292,33 +296,47 @@ int fs_parse_path(const char* path, char* dirname, char* filename)
 
     if (last_slash == 0) {
         // 文件在根目录下
+        if (len - 1 >= MAX_FILENAME_LEN) {
+            return -1;  // 文件名过长
+        }
         dirname[0] = '/';
         dirname[1] = '\0';
 
         // 复制文件名
-        for (i = 1; i < len; i++) {
+        for (i = 1; i < len && i - 1 < MAX_FILENAME_LEN - 1; i++) {
             filename[i - 1] = path[i];
         }
-        filename[len - 1] = '\0';
+        filename[i - 1] = '\0';
     } else {
+        // 检查目录部分长度
+        if (last_slash >= MAX_PATH_LEN) {
+            return -1;  // 目录路径过长
+        }
+
         // 复制目录部分
-        for (i = 0; i < last_slash; i++) {
+        for (i = 0; i < last_slash && i < MAX_PATH_LEN - 1; i++) {
             dirname[i] = path[i];
         }
-        dirname[last_slash] = '\0';
+        dirname[i] = '\0';
+
+        // 检查文件名长度
+        int filename_len = len - last_slash - 1;
+        if (filename_len >= MAX_FILENAME_LEN) {
+            return -1;  // 文件名过长
+        }
 
         // 复制文件名部分
-        for (i = last_slash + 1; i < len; i++) {
+        for (i = last_slash + 1; i < len && i - last_slash - 1 < MAX_FILENAME_LEN - 1; i++) {
             filename[i - last_slash - 1] = path[i];
         }
-        filename[len - last_slash - 1] = '\0';
+        filename[i - last_slash - 1] = '\0';
     }
 
     return 0;
 }
 
 /**
- * 规范化路径字符串(优化版本: 减少中间字符串操作)
+ * 规范化路径字符串(优化版本: 减少中间字符串操作,带边界检查)
  * 处理 . 和 ..，合并连续的 /，移除末尾的 / (根目录除外)
  */
 int fs_normalize_path(const char* input, char* output)
@@ -329,10 +347,17 @@ int fs_normalize_path(const char* input, char* output)
     int component_count = 0;
     int i = 0;
     int is_absolute = 0;
+    int input_len = 0;
 
     // 参数验证
     if (input == 0 || output == 0) {
         return -1;
+    }
+
+    // 检查输入长度
+    input_len = str_length(input);
+    if (input_len >= MAX_PATH_LEN) {
+        return -1;  // 路径过长
     }
 
     // 判断是否为绝对路径
@@ -342,13 +367,13 @@ int fs_normalize_path(const char* input, char* output)
     }
 
     // 解析路径组件
-    while (input[i] != '\0') {
+    while (input[i] != '\0' && i < input_len) {
         // 跳过连续的 /
-        while (input[i] == '/') {
+        while (input[i] == '/' && i < input_len) {
             i++;
         }
 
-        if (input[i] == '\0') {
+        if (input[i] == '\0' || i >= input_len) {
             break;
         }
 
@@ -357,7 +382,7 @@ int fs_normalize_path(const char* input, char* output)
         int comp_len = 0;
 
         // 计算组件长度
-        while (input[i] != '\0' && input[i] != '/' && comp_len < MAX_FILENAME_LEN - 1) {
+        while (input[i] != '\0' && input[i] != '/' && comp_len < MAX_FILENAME_LEN - 1 && i < input_len) {
             i++;
             comp_len++;
         }
@@ -374,19 +399,24 @@ int fs_normalize_path(const char* input, char* output)
             // 如果是绝对路径，不能超出根目录
             // 如果是相对路径，可以添加 .. 组件
             if (!is_absolute && component_count == 0) {
-                // 保留 .. 组件
+                // 检查数组边界
                 if (component_count < MAX_PATH_LEN / 2) {
                     component_ptrs[component_count] = comp_start;
                     component_lens[component_count] = comp_len;
                     component_count++;
+                } else {
+                    return -1;  // 组件过多
                 }
             }
         } else {
             // 普通组件，记录指针和长度
-            if (component_count < MAX_PATH_LEN / 2) {
+            // 检查数组边界
+            if (component_count < MAX_PATH_LEN / 2 - 1) {
                 component_ptrs[component_count] = comp_start;
                 component_lens[component_count] = comp_len;
                 component_count++;
+            } else {
+                return -1;  // 组件过多
             }
         }
     }
@@ -394,7 +424,8 @@ int fs_normalize_path(const char* input, char* output)
     // 构建规范化路径(直接从源字符串复制,避免中间缓冲)
     i = 0;
 
-    if (is_absolute) {
+    // 检查输出缓冲区边界
+    if (is_absolute && i < MAX_PATH_LEN - 1) {
         output[i++] = '/';
     }
 
@@ -408,26 +439,30 @@ int fs_normalize_path(const char* input, char* output)
         }
 
         // 添加 / 分隔符(除第一个组件外)
-        if (j > 0) {
+        if (j > 0 && i < MAX_PATH_LEN - 1) {
             output[i++] = '/';
         }
 
-        // 直接复制组件(无需中间字符串)
-        for (int k = 0; k < len; k++) {
+        // 直接复制组件(无需中间字符串),带边界检查
+        for (int k = 0; k < len && i < MAX_PATH_LEN - 1; k++) {
             output[i++] = ptr[k];
         }
     }
 
     // 处理空路径
     if (i == 0) {
-        if (is_absolute) {
+        if (is_absolute && i < MAX_PATH_LEN - 1) {
             output[i++] = '/';
-        } else {
+        } else if (i < MAX_PATH_LEN - 1) {
             // 相对路径为空，使用 .
             output[i++] = '.';
         }
     }
 
+    // 确保不超过缓冲区边界
+    if (i >= MAX_PATH_LEN) {
+        i = MAX_PATH_LEN - 1;
+    }
     output[i] = '\0';
 
     return 0;
@@ -704,7 +739,7 @@ FileSystemStatus fs_create(const char* path, const char* filename,
     }
 
     // 初始化文件节点
-    str_copy(new_file->filename, filename);
+    str_copy(new_file->filename, filename, MAX_FILENAME_LEN);
     new_file->type = type;
     new_file->uid = owner_uid;
     new_file->gid = owner_gid;
@@ -1031,10 +1066,10 @@ FileSystemStatus fs_rename(const char* path, const char* new_name, int uid, int 
     }
 
     // 保存旧文件名用于调试
-    str_copy(old_filename, file->filename);
+    str_copy(old_filename, file->filename, MAX_FILENAME_LEN);
 
     // 修改文件名
-    str_copy(file->filename, new_name);
+    str_copy(file->filename, new_name, MAX_FILENAME_LEN);
 
     return FS_SUCCESS;
 }
@@ -1129,7 +1164,7 @@ FileSystemStatus fs_move(const char* src_path, const char* dest_path, int uid, i
     }
 
     // 保存源文件名
-    str_copy(filename, src_file->filename);
+    str_copy(filename, src_file->filename, MAX_FILENAME_LEN);
 
     // 检查目标目录中是否已有同名文件
     existing_file = fs_find_in_directory(dest_parent, filename);
@@ -1220,7 +1255,7 @@ FileSystemStatus fs_copy(const char* src_path, const char* dest_path, int uid, i
     }
 
     // 保存源文件名
-    str_copy(filename, src_file->filename);
+    str_copy(filename, src_file->filename, MAX_FILENAME_LEN);
 
     // 检查目标目录中是否已有同名文件
     if (fs_find_in_directory(dest_parent, filename) != 0) {
@@ -1239,7 +1274,7 @@ FileSystemStatus fs_copy(const char* src_path, const char* dest_path, int uid, i
     }
 
     // 初始化新文件节点
-    str_copy(new_file->filename, filename);
+    str_copy(new_file->filename, filename, MAX_FILENAME_LEN);
     new_file->type = src_file->type;           // 继承文件类型
     new_file->uid = uid;                        // 新文件由执行操作的用户所有
     new_file->gid = gid;                        // 使用执行操作的用户组

@@ -8,46 +8,48 @@
 
 // ==================== 字符串辅助函数 ====================
 
-// 字符串长度
+// 字符串长度(带最大长度限制,防止缓冲区溢出)
 static int str_length(const char* str) {
     if (str == 0) return 0;
     int len = 0;
-    while (str[len] != '\0') len++;
+    int max_len = MAX_PATH_LEN * 2;  // 防止无限循环
+    while (str[len] != '\0' && len < max_len) len++;
     return len;
 }
 
-// 字符串比较
+// 字符串比较(带最大长度限制)
 static int str_compare(const char* s1, const char* s2) {
     if (s1 == 0 || s2 == 0) return -1;
     int i = 0;
-    while (s1[i] != '\0' && s2[i] != '\0') {
+    int max_cmp = MAX_PATH_LEN;  // 限制比较长度
+    while (s1[i] != '\0' && s2[i] != '\0' && i < max_cmp) {
         if (s1[i] != s2[i]) return s1[i] - s2[i];
         i++;
     }
     return s1[i] - s2[i];
 }
 
-// 字符串复制
-static void str_copy(char* dest, const char* src) {
+// 字符串复制(带缓冲区大小检查)
+static void str_copy(char* dest, const char* src, int max_len = MAX_PATH_LEN) {
     if (dest == 0 || src == 0) return;
     int i = 0;
-    while (src[i] != '\0') {
+    while (src[i] != '\0' && i < max_len - 1) {  // 保留空间给 '\0'
         dest[i] = src[i];
         i++;
     }
-    dest[i] = '\0';
+    dest[i] = '\0';  // 确保以 null 结尾
 }
 
-// 字符串拼接
-static void str_concat(char* dest, const char* src) {
+// 字符串拼接(带缓冲区大小检查)
+static void str_concat(char* dest, const char* src, int max_len = MAX_PATH_LEN) {
     if (dest == 0 || src == 0) return;
     int i = 0;
-    while (dest[i] != '\0') i++;
+    while (dest[i] != '\0' && i < max_len) i++;  // 找到末尾
     int j = 0;
-    while (src[j] != '\0') {
+    while (src[j] != '\0' && i < max_len - 1) {  // 保留空间给 '\0'
         dest[i++] = src[j++];
     }
-    dest[i] = '\0';
+    dest[i] = '\0';  // 确保以 null 结尾
 }
 
 // 测试辅助函数:打印状态结果
