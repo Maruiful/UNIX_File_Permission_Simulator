@@ -1887,24 +1887,55 @@ void print_permission_string(Permissions perms) {
     std::cout << ((perms.other_perms & PERM_EXECUTE) ? "x" : "-");
 }
 
-// 获取当前目录路径字符串
+// 获取当前目录路径字符串(优化版本: 减少字符串复制)
 void get_current_path(char* path, FileNode* node) {
     if (node == 0 || node == fs_get_root()) {
         str_copy(path, "/");
         return;
     }
 
-    // 递归构建路径
+    // 使用迭代方式构建路径,从叶节点向根节点遍历
     char temp[MAX_PATH_LEN];
-    char parent_path[MAX_PATH_LEN];
-    get_current_path(parent_path, node->parent);
+    int pos = MAX_PATH_LEN - 1;  // 从缓冲区末尾开始
+    temp[pos] = '\0';
+    pos--;
 
-    str_copy(temp, parent_path);
-    if (str_compare(temp, "/") != 0) {
-        str_concat(temp, "/");
+    FileNode* current = node;
+    while (current != 0 && current != fs_get_root()) {
+        // 计算当前文件名长度
+        int len = str_length(current->filename);
+
+        // 检查空间是否足够
+        if (pos - len < 0) {
+            str_copy(path, "/");
+            return;
+        }
+
+        // 复制文件名(倒序)
+        for (int i = len - 1; i >= 0; i--) {
+            temp[pos--] = current->filename[i];
+        }
+
+        // 添加路径分隔符(除了根目录)
+        if (current->parent != 0 && current->parent != fs_get_root()) {
+            temp[pos--] = '/';
+        }
+
+        current = current->parent;
     }
-    str_concat(temp, node->filename);
-    str_copy(path, temp);
+
+    // 添加根目录标记
+    if (temp[pos + 1] != '/') {
+        temp[pos--] = '/';
+    }
+
+    // 正向复制到结果缓冲区(只需一次复制)
+    int i = 0;
+    int j = pos + 1;
+    while (temp[j] != '\0') {
+        path[i++] = temp[j++];
+    }
+    path[i] = '\0';
 }
 
 // 打印命令提示符
@@ -1986,6 +2017,7 @@ void cmd_ls(const char* path) {
 void cmd_mkdir(const char* path) {
     char dirname[MAX_PATH_LEN];
     char filename[MAX_FILENAME_LEN];
+    char full_path[MAX_PATH_LEN];
     FileNode* parent_dir;
     Permissions perms;
 
@@ -1994,8 +2026,28 @@ void cmd_mkdir(const char* path) {
         return;
     }
 
+    // 构建完整路径
+    if (path[0] == '/') {
+        // 绝对路径,直接使用
+        str_copy(full_path, path);
+    } else {
+        // 相对路径,拼接当前目录
+        get_current_path(full_path, g_current_dir);
+        if (str_compare(full_path, "/") != 0) {
+            str_concat(full_path, "/");
+        }
+        str_concat(full_path, path);
+    }
+
+    // 规范化路径(处理 .、.. 等)
+    char normalized_path[MAX_PATH_LEN];
+    if (fs_normalize_path(full_path, normalized_path) != 0) {
+        std::cout << "mkdir: 无效路径" << std::endl;
+        return;
+    }
+
     // 解析路径
-    if (fs_parse_path(path, dirname, filename) != 0) {
+    if (fs_parse_path(normalized_path, dirname, filename) != 0) {
         std::cout << "mkdir: 无效路径" << std::endl;
         return;
     }
@@ -2006,19 +2058,10 @@ void cmd_mkdir(const char* path) {
         // 使用当前目录
         get_current_path(parent_path, g_current_dir);
         parent_dir = g_current_dir;
-    } else if (dirname[0] == '/') {
+    } else {
         // 绝对路径
         str_copy(parent_path, dirname);
         parent_dir = fs_find(dirname);
-    } else {
-        // 相对路径
-        FileNode* found = fs_find_relative(g_current_dir, dirname);
-        if (found == 0) {
-            std::cout << "mkdir: 父目录不存在" << std::endl;
-            return;
-        }
-        get_current_path(parent_path, found);
-        parent_dir = found;
     }
 
     if (parent_dir == 0 || parent_dir->type != FILE_TYPE_DIRECTORY) {
@@ -2048,6 +2091,7 @@ void cmd_mkdir(const char* path) {
 void cmd_touch(const char* path) {
     char dirname[MAX_PATH_LEN];
     char filename[MAX_FILENAME_LEN];
+    char full_path[MAX_PATH_LEN];
     FileNode* parent_dir;
     Permissions perms;
 
@@ -2056,8 +2100,28 @@ void cmd_touch(const char* path) {
         return;
     }
 
+    // 构建完整路径
+    if (path[0] == '/') {
+        // 绝对路径,直接使用
+        str_copy(full_path, path);
+    } else {
+        // 相对路径,拼接当前目录
+        get_current_path(full_path, g_current_dir);
+        if (str_compare(full_path, "/") != 0) {
+            str_concat(full_path, "/");
+        }
+        str_concat(full_path, path);
+    }
+
+    // 规范化路径(处理 .、.. 等)
+    char normalized_path[MAX_PATH_LEN];
+    if (fs_normalize_path(full_path, normalized_path) != 0) {
+        std::cout << "touch: 无效路径" << std::endl;
+        return;
+    }
+
     // 解析路径
-    if (fs_parse_path(path, dirname, filename) != 0) {
+    if (fs_parse_path(normalized_path, dirname, filename) != 0) {
         std::cout << "touch: 无效路径" << std::endl;
         return;
     }
@@ -2068,19 +2132,10 @@ void cmd_touch(const char* path) {
         // 使用当前目录
         get_current_path(parent_path, g_current_dir);
         parent_dir = g_current_dir;
-    } else if (dirname[0] == '/') {
+    } else {
         // 绝对路径
         str_copy(parent_path, dirname);
         parent_dir = fs_find(dirname);
-    } else {
-        // 相对路径
-        FileNode* found = fs_find_relative(g_current_dir, dirname);
-        if (found == 0) {
-            std::cout << "touch: 父目录不存在" << std::endl;
-            return;
-        }
-        get_current_path(parent_path, found);
-        parent_dir = found;
     }
 
     if (parent_dir == 0 || parent_dir->type != FILE_TYPE_DIRECTORY) {

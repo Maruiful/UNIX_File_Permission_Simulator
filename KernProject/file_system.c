@@ -318,16 +318,16 @@ int fs_parse_path(const char* path, char* dirname, char* filename)
 }
 
 /**
- * 规范化路径字符串
+ * 规范化路径字符串(优化版本: 减少中间字符串操作)
  * 处理 . 和 ..，合并连续的 /，移除末尾的 / (根目录除外)
  */
 int fs_normalize_path(const char* input, char* output)
 {
-    char components[MAX_PATH_LEN / 2][MAX_FILENAME_LEN];  // 路径组件数组
+    // 使用指针和长度而不是复制字符串
+    const char* component_ptrs[MAX_PATH_LEN / 2];  // 组件指针数组
+    int component_lens[MAX_PATH_LEN / 2];           // 组件长度数组
     int component_count = 0;
     int i = 0;
-    int j = 0;
-    char current_component[MAX_FILENAME_LEN];
     int is_absolute = 0;
 
     // 参数验证
@@ -352,18 +352,21 @@ int fs_normalize_path(const char* input, char* output)
             break;
         }
 
-        // 提取当前组件
-        j = 0;
-        while (input[i] != '\0' && input[i] != '/' && j < MAX_FILENAME_LEN - 1) {
-            current_component[j++] = input[i++];
+        // 记录组件起始位置
+        const char* comp_start = &input[i];
+        int comp_len = 0;
+
+        // 计算组件长度
+        while (input[i] != '\0' && input[i] != '/' && comp_len < MAX_FILENAME_LEN - 1) {
+            i++;
+            comp_len++;
         }
-        current_component[j] = '\0';
 
         // 处理特殊组件
-        if (str_compare(current_component, ".") == 0) {
+        if (comp_len == 1 && comp_start[0] == '.') {
             // 当前目录，忽略
             continue;
-        } else if (str_compare(current_component, "..") == 0) {
+        } else if (comp_len == 2 && comp_start[0] == '.' && comp_start[1] == '.') {
             // 父目录，弹出上一个组件(如果有的话)
             if (component_count > 0) {
                 component_count--;
@@ -373,47 +376,45 @@ int fs_normalize_path(const char* input, char* output)
             if (!is_absolute && component_count == 0) {
                 // 保留 .. 组件
                 if (component_count < MAX_PATH_LEN / 2) {
-                    str_copy(components[component_count++], "..");
+                    component_ptrs[component_count] = comp_start;
+                    component_lens[component_count] = comp_len;
+                    component_count++;
                 }
             }
         } else {
-            // 普通组件，添加到数组
+            // 普通组件，记录指针和长度
             if (component_count < MAX_PATH_LEN / 2) {
-                str_copy(components[component_count++], current_component);
+                component_ptrs[component_count] = comp_start;
+                component_lens[component_count] = comp_len;
+                component_count++;
             }
         }
     }
 
-    // 构建规范化路径
+    // 构建规范化路径(直接从源字符串复制,避免中间缓冲)
     i = 0;
 
     if (is_absolute) {
         output[i++] = '/';
     }
 
-    for (j = 0; j < component_count; j++) {
-        int len = str_length(components[j]);
-        int k;
+    for (int j = 0; j < component_count; j++) {
+        int len = component_lens[j];
+        const char* ptr = component_ptrs[j];
 
         // 检查缓冲区空间
-        if (i + len + 1 >= MAX_PATH_LEN) {
+        if (i + len + (j > 0 ? 1 : 0) >= MAX_PATH_LEN) {
             return -1;  // 路径过长
         }
 
-        // 添加 /
-        if (j > 0 || (!is_absolute && j == 0)) {
-            // 对于相对路径的第一个组件前不需要加 /
-            // 但对于后续组件需要加 /
-            if (j > 0 || !is_absolute) {
-                if (i > 0) {
-                    output[i++] = '/';
-                }
-            }
+        // 添加 / 分隔符(除第一个组件外)
+        if (j > 0) {
+            output[i++] = '/';
         }
 
-        // 添加组件
-        for (k = 0; k < len; k++) {
-            output[i++] = components[j][k];
+        // 直接复制组件(无需中间字符串)
+        for (int k = 0; k < len; k++) {
+            output[i++] = ptr[k];
         }
     }
 
