@@ -120,7 +120,6 @@ static void free_file_node(FileNode* node)
     if (node == 0) return;
 
     // 清零节点数据
-    int i;
     node->filename[0] = '\0';
     node->type = FILE_TYPE_REGULAR;
     node->uid = 0;
@@ -586,8 +585,6 @@ PermissionResult fs_check_permission(FileNode* file, int uid, int gid, Operation
  */
 FileNode* fs_find(const char* path)
 {
-    char dirname[MAX_PATH_LEN];
-    char filename[MAX_FILENAME_LEN];
     FileNode* current;
     int i;
     int start;
@@ -738,7 +735,6 @@ FileSystemStatus fs_delete(const char* path)
     FileNode* file;
     FileNode* parent;
     FileNode* prev;
-    FileNode* current;
     int uid, gid;
 
     // 参数验证
@@ -991,7 +987,6 @@ FileSystemStatus fs_rename(const char* path, const char* new_name, int uid, int 
 {
     FileNode* file;
     FileNode* parent;
-    char dirname[MAX_PATH_LEN];
     char old_filename[MAX_FILENAME_LEN];
 
     // 参数验证
@@ -1080,8 +1075,6 @@ FileSystemStatus fs_move(const char* src_path, const char* dest_path, int uid, i
     FileNode* prev;
     FileNode* last_child;
     char filename[MAX_FILENAME_LEN];
-    int i;
-
     // 参数验证
     if (src_path == 0 || dest_path == 0) {
         return FS_ERR_INVALID;
