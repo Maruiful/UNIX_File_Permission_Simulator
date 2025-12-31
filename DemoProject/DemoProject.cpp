@@ -6,6 +6,50 @@
 #include "../KernProject/file_system.h"
 #include <windows.h>
 
+// ==================== 字符串辅助函数 ====================
+
+// 字符串长度
+static int str_length(const char* str) {
+    if (str == 0) return 0;
+    int len = 0;
+    while (str[len] != '\0') len++;
+    return len;
+}
+
+// 字符串比较
+static int str_compare(const char* s1, const char* s2) {
+    if (s1 == 0 || s2 == 0) return -1;
+    int i = 0;
+    while (s1[i] != '\0' && s2[i] != '\0') {
+        if (s1[i] != s2[i]) return s1[i] - s2[i];
+        i++;
+    }
+    return s1[i] - s2[i];
+}
+
+// 字符串复制
+static void str_copy(char* dest, const char* src) {
+    if (dest == 0 || src == 0) return;
+    int i = 0;
+    while (src[i] != '\0') {
+        dest[i] = src[i];
+        i++;
+    }
+    dest[i] = '\0';
+}
+
+// 字符串拼接
+static void str_concat(char* dest, const char* src) {
+    if (dest == 0 || src == 0) return;
+    int i = 0;
+    while (dest[i] != '\0') i++;
+    int j = 0;
+    while (src[j] != '\0') {
+        dest[i++] = src[j++];
+    }
+    dest[i] = '\0';
+}
+
 // 测试辅助函数:打印状态结果
 void print_user_status(UserStatus status) {
     switch (status) {
@@ -1398,50 +1442,979 @@ void test_find_relative() {
     print_fs_status(status);
 }
 
+// ==================== 交互式命令行界面 ====================
+
+// 全局状态变量
+static int g_current_uid = 0;       // 当前用户ID (默认root)
+static int g_current_gid = 0;       // 当前用户组ID (默认root)
+static FileNode* g_current_dir = 0; // 当前目录节点
+
+// 获取用户名
+const char* get_username(int uid) {
+    // 特殊处理: UID=0 默认为 root
+    if (uid == 0) {
+        User* user = um_find_user_by_uid(0);
+        if (user) {
+            return user->username;
+        }
+        return "root";
+    }
+
+    User* user = um_find_user_by_uid(uid);
+    if (user) {
+        return user->username;
+    }
+    return "unknown";
+}
+
+// 打印权限字符串 (rwxr-xr-x格式)
+void print_permission_string(Permissions perms) {
+    // 所有者权限
+    std::cout << ((perms.owner_perms & PERM_READ) ? "r" : "-");
+    std::cout << ((perms.owner_perms & PERM_WRITE) ? "w" : "-");
+    std::cout << ((perms.owner_perms & PERM_EXECUTE) ? "x" : "-");
+
+    // 组权限
+    std::cout << ((perms.group_perms & PERM_READ) ? "r" : "-");
+    std::cout << ((perms.group_perms & PERM_WRITE) ? "w" : "-");
+    std::cout << ((perms.group_perms & PERM_EXECUTE) ? "x" : "-");
+
+    // 其他用户权限
+    std::cout << ((perms.other_perms & PERM_READ) ? "r" : "-");
+    std::cout << ((perms.other_perms & PERM_WRITE) ? "w" : "-");
+    std::cout << ((perms.other_perms & PERM_EXECUTE) ? "x" : "-");
+}
+
+// 获取当前目录路径字符串
+void get_current_path(char* path, FileNode* node) {
+    if (node == 0 || node == fs_get_root()) {
+        str_copy(path, "/");
+        return;
+    }
+
+    // 递归构建路径
+    char temp[MAX_PATH_LEN];
+    char parent_path[MAX_PATH_LEN];
+    get_current_path(parent_path, node->parent);
+
+    str_copy(temp, parent_path);
+    if (str_compare(temp, "/") != 0) {
+        str_concat(temp, "/");
+    }
+    str_concat(temp, node->filename);
+    str_copy(path, temp);
+}
+
+// 打印命令提示符
+void print_prompt() {
+    char path[MAX_PATH_LEN];
+    get_current_path(path, g_current_dir);
+    std::cout << "[" << get_username(g_current_uid) << "@" << path << "]$ ";
+}
+
+// 命令: ls - 列出目录内容
+void cmd_ls(const char* path) {
+    FileNode* dir;
+    FileNode* child;
+    char target_path[MAX_PATH_LEN];
+
+    // 确定目标目录
+    if (path == 0 || str_length(path) == 0) {
+        dir = g_current_dir;
+    } else {
+        // 解析路径
+        if (path[0] == '/') {
+            // 绝对路径
+            str_copy(target_path, path);
+            dir = fs_find(target_path);
+        } else {
+            // 相对路径
+            FileNode* found = fs_find_relative(g_current_dir, path);
+            dir = found;
+        }
+    }
+
+    if (dir == 0) {
+        std::cout << "ls: 目录不存在" << std::endl;
+        return;
+    }
+
+    if (dir->type != FILE_TYPE_DIRECTORY) {
+        std::cout << "ls: 不是目录" << std::endl;
+        return;
+    }
+
+    // 检查读权限
+    if (fs_check_permission(dir, g_current_uid, g_current_gid, OP_READ) != PERM_GRANTED) {
+        std::cout << "ls: 权限不足" << std::endl;
+        return;
+    }
+
+    // 列出内容
+    child = dir->children;
+    if (child == 0) {
+        std::cout << "(空目录)" << std::endl;
+        return;
+    }
+
+    while (child != 0) {
+        // 打印文件类型
+        std::cout << ((child->type == FILE_TYPE_DIRECTORY) ? "d" : "-");
+
+        // 打印权限
+        print_permission_string(child->perms);
+
+        // 打印所有者
+        std::cout << " uid=" << child->uid;
+
+        // 打印文件名
+        std::cout << " " << child->filename;
+
+        // 如果是目录，添加 /
+        if (child->type == FILE_TYPE_DIRECTORY) {
+            std::cout << "/";
+        }
+
+        std::cout << std::endl;
+        child = child->next;
+    }
+}
+
+// 命令: mkdir - 创建目录
+void cmd_mkdir(const char* path) {
+    char dirname[MAX_PATH_LEN];
+    char filename[MAX_FILENAME_LEN];
+    FileNode* parent_dir;
+    Permissions perms;
+
+    if (path == 0 || str_length(path) == 0) {
+        std::cout << "mkdir: 缺少参数" << std::endl;
+        return;
+    }
+
+    // 解析路径
+    if (fs_parse_path(path, dirname, filename) != 0) {
+        std::cout << "mkdir: 无效路径" << std::endl;
+        return;
+    }
+
+    // 查找父目录
+    char parent_path[MAX_PATH_LEN];
+    if (dirname[0] == '\0') {
+        // 使用当前目录
+        get_current_path(parent_path, g_current_dir);
+        parent_dir = g_current_dir;
+    } else if (dirname[0] == '/') {
+        // 绝对路径
+        str_copy(parent_path, dirname);
+        parent_dir = fs_find(dirname);
+    } else {
+        // 相对路径
+        FileNode* found = fs_find_relative(g_current_dir, dirname);
+        if (found == 0) {
+            std::cout << "mkdir: 父目录不存在" << std::endl;
+            return;
+        }
+        get_current_path(parent_path, found);
+        parent_dir = found;
+    }
+
+    if (parent_dir == 0 || parent_dir->type != FILE_TYPE_DIRECTORY) {
+        std::cout << "mkdir: 父目录不存在" << std::endl;
+        return;
+    }
+
+    // 检查父目录写权限
+    if (fs_check_permission(parent_dir, g_current_uid, g_current_gid, OP_WRITE) != PERM_GRANTED) {
+        std::cout << "mkdir: 权限不足" << std::endl;
+        return;
+    }
+
+    // 设置默认权限
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = PERM_READ | PERM_EXECUTE;
+
+    // 创建目录
+    FileSystemStatus status = fs_create(parent_path, filename, g_current_uid, g_current_gid, perms, FILE_TYPE_DIRECTORY);
+    if (status != FS_SUCCESS) {
+        std::cout << "mkdir: 创建失败" << std::endl;
+    }
+}
+
+// 命令: touch - 创建文件
+void cmd_touch(const char* path) {
+    char dirname[MAX_PATH_LEN];
+    char filename[MAX_FILENAME_LEN];
+    FileNode* parent_dir;
+    Permissions perms;
+
+    if (path == 0 || str_length(path) == 0) {
+        std::cout << "touch: 缺少参数" << std::endl;
+        return;
+    }
+
+    // 解析路径
+    if (fs_parse_path(path, dirname, filename) != 0) {
+        std::cout << "touch: 无效路径" << std::endl;
+        return;
+    }
+
+    // 查找父目录
+    char parent_path[MAX_PATH_LEN];
+    if (dirname[0] == '\0') {
+        // 使用当前目录
+        get_current_path(parent_path, g_current_dir);
+        parent_dir = g_current_dir;
+    } else if (dirname[0] == '/') {
+        // 绝对路径
+        str_copy(parent_path, dirname);
+        parent_dir = fs_find(dirname);
+    } else {
+        // 相对路径
+        FileNode* found = fs_find_relative(g_current_dir, dirname);
+        if (found == 0) {
+            std::cout << "touch: 父目录不存在" << std::endl;
+            return;
+        }
+        get_current_path(parent_path, found);
+        parent_dir = found;
+    }
+
+    if (parent_dir == 0 || parent_dir->type != FILE_TYPE_DIRECTORY) {
+        std::cout << "touch: 父目录不存在" << std::endl;
+        return;
+    }
+
+    // 检查父目录写权限
+    if (fs_check_permission(parent_dir, g_current_uid, g_current_gid, OP_WRITE) != PERM_GRANTED) {
+        std::cout << "touch: 权限不足" << std::endl;
+        return;
+    }
+
+    // 设置默认权限
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = PERM_READ;
+
+    // 创建文件
+    FileSystemStatus status = fs_create(parent_path, filename, g_current_uid, g_current_gid, perms, FILE_TYPE_REGULAR);
+    if (status != FS_SUCCESS) {
+        std::cout << "touch: 创建失败" << std::endl;
+    }
+}
+
+// 命令: rm - 删除文件或目录
+void cmd_rm(const char* path, int recursive) {
+    FileNode* file;
+    char full_path[MAX_PATH_LEN];
+
+    if (path == 0 || str_length(path) == 0) {
+        std::cout << "rm: 缺少参数" << std::endl;
+        return;
+    }
+
+    // 解析路径
+    if (path[0] == '/') {
+        str_copy(full_path, path);
+    } else {
+        FileNode* found = fs_find_relative(g_current_dir, path);
+        if (found == 0) {
+            std::cout << "rm: 文件不存在" << std::endl;
+            return;
+        }
+        get_current_path(full_path, found);
+    }
+
+    file = fs_find(full_path);
+    if (file == 0) {
+        std::cout << "rm: 文件不存在" << std::endl;
+        return;
+    }
+
+    // 执行删除
+    FileSystemStatus status;
+    if (recursive) {
+        status = fs_delete_recursive(full_path);
+    } else {
+        status = fs_delete(full_path);
+    }
+
+    if (status != FS_SUCCESS) {
+        if (status == FS_ERR_PERMISSION) {
+            std::cout << "rm: 权限不足" << std::endl;
+        } else if (status == FS_ERR_NOT_EMPTY) {
+            std::cout << "rm: 目录非空，使用 rm -r 递归删除" << std::endl;
+        } else {
+            std::cout << "rm: 删除失败" << std::endl;
+        }
+    }
+}
+
+// 命令: mv - 移动/重命名文件
+void cmd_mv(const char* src_path, const char* dest_path) {
+    char src_full[MAX_PATH_LEN];
+    char dest_dirname[MAX_PATH_LEN];
+    char dest_filename[MAX_FILENAME_LEN];
+    char temp_path[MAX_PATH_LEN];
+    FileNode* src_file;
+    FileNode* dest_node;
+    FileNode* dest_parent;
+
+    if (src_path == 0 || dest_path == 0 ||
+        str_length(src_path) == 0 || str_length(dest_path) == 0) {
+        std::cout << "mv: 缺少参数" << std::endl;
+        return;
+    }
+
+    // 解析源路径
+    if (src_path[0] == '/') {
+        str_copy(src_full, src_path);
+    } else {
+        src_file = fs_find_relative(g_current_dir, src_path);
+        if (src_file == 0) {
+            std::cout << "mv: 源文件不存在" << std::endl;
+            return;
+        }
+        get_current_path(src_full, src_file);
+    }
+
+    // 检查源文件
+    src_file = fs_find(src_full);
+    if (src_file == 0) {
+        std::cout << "mv: 源文件不存在" << std::endl;
+        return;
+    }
+
+    // 解析目标路径
+    // 首先尝试查找目标是否存在
+    if (dest_path[0] == '/') {
+        dest_node = fs_find(dest_path);
+    } else {
+        dest_node = fs_find_relative(g_current_dir, dest_path);
+    }
+
+    if (dest_node != 0 && dest_node->type == FILE_TYPE_DIRECTORY) {
+        // 目标是目录,移动到该目录中,保持原文件名
+        str_copy(dest_dirname, dest_path);
+        str_copy(dest_filename, src_file->filename);
+    } else {
+        // 目标不是目录或不存在,解析为目录+文件名
+        if (fs_parse_path(dest_path, dest_dirname, dest_filename) != 0) {
+            std::cout << "mv: 目标路径无效" << std::endl;
+            return;
+        }
+
+        // 如果文件名为空,使用源文件名
+        if (str_length(dest_filename) == 0) {
+            str_copy(dest_filename, src_file->filename);
+        }
+    }
+
+    // 解析目标目录
+    if (dest_dirname[0] == '\0') {
+        dest_parent = g_current_dir;
+    } else if (dest_dirname[0] == '/') {
+        dest_parent = fs_find(dest_dirname);
+    } else {
+        dest_parent = fs_find_relative(g_current_dir, dest_dirname);
+    }
+
+    if (dest_parent == 0 || dest_parent->type != FILE_TYPE_DIRECTORY) {
+        std::cout << "mv: 目标目录不存在" << std::endl;
+        return;
+    }
+
+    // 构建目标目录路径
+    get_current_path(temp_path, dest_parent);
+
+    // 检查是否在同一目录且只是重命名
+    int same_dir = (dest_parent == src_file->parent);
+
+    if (same_dir) {
+        // 同一目录,直接重命名
+        if (str_compare(src_file->filename, dest_filename) == 0) {
+            return;  // 名字相同,无需操作
+        }
+
+        FileSystemStatus status = fs_rename(src_full, dest_filename, g_current_uid, g_current_gid);
+        if (status != FS_SUCCESS) {
+            if (status == FS_ERR_PERMISSION) {
+                std::cout << "mv: 权限不足" << std::endl;
+            } else if (status == FS_ERR_EXISTS) {
+                std::cout << "mv: 目标文件已存在" << std::endl;
+            } else {
+                std::cout << "mv: 重命名失败" << std::endl;
+            }
+        }
+    } else {
+        // 不同目录,先移动再重命名(如果需要)
+        FileSystemStatus status = fs_move(src_full, temp_path, g_current_uid, g_current_gid);
+        if (status != FS_SUCCESS) {
+            if (status == FS_ERR_PERMISSION) {
+                std::cout << "mv: 权限不足" << std::endl;
+            } else if (status == FS_ERR_EXISTS) {
+                std::cout << "mv: 目标文件已存在" << std::endl;
+            } else {
+                std::cout << "mv: 移动失败" << std::endl;
+            }
+            return;
+        }
+
+        // 如果需要重命名
+        if (str_compare(src_file->filename, dest_filename) != 0) {
+            // 构建移动后的完整路径
+            get_current_path(temp_path, dest_parent);
+            if (str_compare(temp_path, "/") != 0) {
+                str_concat(temp_path, "/");
+            }
+            str_concat(temp_path, src_file->filename);
+
+            status = fs_rename(temp_path, dest_filename, g_current_uid, g_current_gid);
+            if (status != FS_SUCCESS) {
+                if (status == FS_ERR_PERMISSION) {
+                    std::cout << "mv: 移动成功但重命名失败(权限不足)" << std::endl;
+                } else if (status == FS_ERR_EXISTS) {
+                    std::cout << "mv: 移动成功但重命名失败(目标已存在)" << std::endl;
+                } else {
+                    std::cout << "mv: 移动成功但重命名失败" << std::endl;
+                }
+            }
+        }
+    }
+}
+
+// 命令: cp - 复制文件
+void cmd_cp(const char* src_path, const char* dest_path) {
+    char src_full[MAX_PATH_LEN];
+    char dest_dirname[MAX_PATH_LEN];
+    char dest_filename[MAX_FILENAME_LEN];
+    char temp_path[MAX_PATH_LEN];
+    FileNode* src_file;
+    FileNode* dest_node;
+    FileNode* dest_parent;
+
+    if (src_path == 0 || dest_path == 0 ||
+        str_length(src_path) == 0 || str_length(dest_path) == 0) {
+        std::cout << "cp: 缺少参数" << std::endl;
+        return;
+    }
+
+    // 解析源路径
+    if (src_path[0] == '/') {
+        str_copy(src_full, src_path);
+    } else {
+        src_file = fs_find_relative(g_current_dir, src_path);
+        if (src_file == 0) {
+            std::cout << "cp: 源文件不存在" << std::endl;
+            return;
+        }
+        get_current_path(src_full, src_file);
+    }
+
+    // 检查源文件
+    src_file = fs_find(src_full);
+    if (src_file == 0) {
+        std::cout << "cp: 源文件不存在" << std::endl;
+        return;
+    }
+
+    // 解析目标路径
+    // 首先尝试查找目标是否存在
+    if (dest_path[0] == '/') {
+        dest_node = fs_find(dest_path);
+    } else {
+        dest_node = fs_find_relative(g_current_dir, dest_path);
+    }
+
+    if (dest_node != 0 && dest_node->type == FILE_TYPE_DIRECTORY) {
+        // 目标是目录,复制到该目录中,保持原文件名
+        str_copy(dest_dirname, dest_path);
+        str_copy(dest_filename, src_file->filename);
+    } else {
+        // 目标不是目录或不存在,解析为目录+文件名
+        if (fs_parse_path(dest_path, dest_dirname, dest_filename) != 0) {
+            std::cout << "cp: 目标路径无效" << std::endl;
+            return;
+        }
+
+        // 如果文件名为空,使用源文件名
+        if (str_length(dest_filename) == 0) {
+            str_copy(dest_filename, src_file->filename);
+        }
+    }
+
+    // 解析目标目录
+    if (dest_dirname[0] == '\0') {
+        dest_parent = g_current_dir;
+    } else if (dest_dirname[0] == '/') {
+        dest_parent = fs_find(dest_dirname);
+    } else {
+        dest_parent = fs_find_relative(g_current_dir, dest_dirname);
+    }
+
+    if (dest_parent == 0 || dest_parent->type != FILE_TYPE_DIRECTORY) {
+        std::cout << "cp: 目标目录不存在" << std::endl;
+        return;
+    }
+
+    // 构建目标目录路径
+    get_current_path(temp_path, dest_parent);
+
+    // 先复制到目标目录
+    FileSystemStatus status = fs_copy(src_full, temp_path, g_current_uid, g_current_gid);
+    if (status != FS_SUCCESS) {
+        if (status == FS_ERR_PERMISSION) {
+            std::cout << "cp: 权限不足" << std::endl;
+        } else if (status == FS_ERR_EXISTS) {
+            std::cout << "cp: 目标文件已存在" << std::endl;
+        } else {
+            std::cout << "cp: 复制失败" << std::endl;
+        }
+        return;
+    }
+
+    // 如果需要重命名
+    if (str_compare(src_file->filename, dest_filename) != 0) {
+        // 构建复制后的完整路径
+        get_current_path(temp_path, dest_parent);
+        if (str_compare(temp_path, "/") != 0) {
+            str_concat(temp_path, "/");
+        }
+        str_concat(temp_path, src_file->filename);
+
+        status = fs_rename(temp_path, dest_filename, g_current_uid, g_current_gid);
+        if (status != FS_SUCCESS) {
+            if (status == FS_ERR_PERMISSION) {
+                std::cout << "cp: 复制成功但重命名失败(权限不足)" << std::endl;
+            } else if (status == FS_ERR_EXISTS) {
+                std::cout << "cp: 复制成功但重命名失败(目标已存在)" << std::endl;
+            } else {
+                std::cout << "cp: 复制成功但重命名失败" << std::endl;
+            }
+        }
+    }
+}
+
+// 命令: chmod - 修改权限
+void cmd_chmod(const char* path, const char* perms_str) {
+    int owner_perms = 0, group_perms = 0, other_perms = 0;
+    Permissions perms;
+
+    if (path == 0 || perms_str == 0 ||
+        str_length(path) == 0 || str_length(perms_str) == 0) {
+        std::cout << "chmod: 缺少参数" << std::endl;
+        return;
+    }
+
+    // 解析权限字符串 (例如: 755 或 rwxr-xr-x)
+    if (str_length(perms_str) == 3) {
+        // 八进制格式
+        int p = atoi(perms_str);
+        owner_perms = (p >> 6) & 7;
+        group_perms = (p >> 3) & 7;
+        other_perms = p & 7;
+    } else if (str_length(perms_str) == 9) {
+        // 符号格式 rwxr-xr-x
+        if (perms_str[0] == 'r') owner_perms |= PERM_READ;
+        if (perms_str[1] == 'w') owner_perms |= PERM_WRITE;
+        if (perms_str[2] == 'x') owner_perms |= PERM_EXECUTE;
+        if (perms_str[3] == 'r') group_perms |= PERM_READ;
+        if (perms_str[4] == 'w') group_perms |= PERM_WRITE;
+        if (perms_str[5] == 'x') group_perms |= PERM_EXECUTE;
+        if (perms_str[6] == 'r') other_perms |= PERM_READ;
+        if (perms_str[7] == 'w') other_perms |= PERM_WRITE;
+        if (perms_str[8] == 'x') other_perms |= PERM_EXECUTE;
+    } else {
+        std::cout << "chmod: 无效权限格式" << std::endl;
+        return;
+    }
+
+    perms.owner_perms = owner_perms;
+    perms.group_perms = group_perms;
+    perms.other_perms = other_perms;
+
+    FileSystemStatus status = fs_chmod(path, perms);
+    if (status != FS_SUCCESS) {
+        if (status == FS_ERR_PERMISSION) {
+            std::cout << "chmod: 权限不足" << std::endl;
+        } else if (status == FS_ERR_NOT_FOUND) {
+            std::cout << "chmod: 文件不存在" << std::endl;
+        } else {
+            std::cout << "chmod: 修改失败" << std::endl;
+        }
+    }
+}
+
+// 命令: chown - 修改所有者
+void cmd_chown(const char* path, const char* uid_str, const char* gid_str) {
+    int uid, gid;
+
+    if (path == 0 || uid_str == 0 ||
+        str_length(path) == 0 || str_length(uid_str) == 0) {
+        std::cout << "chown: 缺少参数" << std::endl;
+        return;
+    }
+
+    uid = atoi(uid_str);
+    gid = (gid_str != 0 && str_length(gid_str) > 0) ? atoi(gid_str) : g_current_gid;
+
+    FileSystemStatus status = fs_chown(path, uid, gid);
+    if (status != FS_SUCCESS) {
+        if (status == FS_ERR_PERMISSION) {
+            std::cout << "chown: 权限不足（只有root可以修改所有者）" << std::endl;
+        } else if (status == FS_ERR_NOT_FOUND) {
+            std::cout << "chown: 文件不存在" << std::endl;
+        } else {
+            std::cout << "chown: 修改失败" << std::endl;
+        }
+    }
+}
+
+// 命令: cd - 切换目录
+void cmd_cd(const char* path) {
+    FileNode* new_dir;
+
+    if (path == 0 || str_length(path) == 0) {
+        // cd 不带参数，回到根目录
+        new_dir = fs_get_root();
+    } else if (str_compare(path, "~") == 0) {
+        // cd ~ 回到根目录
+        new_dir = fs_get_root();
+    } else if (path[0] == '/') {
+        // 绝对路径
+        new_dir = fs_find(path);
+    } else {
+        // 相对路径
+        new_dir = fs_find_relative(g_current_dir, path);
+    }
+
+    if (new_dir == 0) {
+        std::cout << "cd: 目录不存在" << std::endl;
+        return;
+    }
+
+    if (new_dir->type != FILE_TYPE_DIRECTORY) {
+        std::cout << "cd: 不是目录" << std::endl;
+        return;
+    }
+
+    // 检查执行权限
+    if (fs_check_permission(new_dir, g_current_uid, g_current_gid, OP_EXECUTE) != PERM_GRANTED) {
+        std::cout << "cd: 权限不足" << std::endl;
+        return;
+    }
+
+    g_current_dir = new_dir;
+}
+
+// 命令: pwd - 显示当前目录
+void cmd_pwd() {
+    char path[MAX_PATH_LEN];
+    get_current_path(path, g_current_dir);
+    std::cout << path << std::endl;
+}
+
+// 命令: su - 切换用户
+void cmd_su(const char* uid_str) {
+    if (uid_str == 0 || str_length(uid_str) == 0) {
+        std::cout << "su: 缺少参数" << std::endl;
+        return;
+    }
+
+    int new_uid = atoi(uid_str);
+    User* user = um_find_user_by_uid(new_uid);
+    if (user == 0) {
+        std::cout << "su: 用户不存在" << std::endl;
+        return;
+    }
+
+    g_current_uid = new_uid;
+    g_current_gid = user->gid;
+}
+
+// 命令: whoami - 显示当前用户
+void cmd_whoami() {
+    std::cout << get_username(g_current_uid) << " (UID=" << g_current_uid << ")" << std::endl;
+}
+
+// 命令: useradd - 创建用户
+void cmd_useradd(const char* username) {
+    if (username == 0 || str_length(username) == 0) {
+        std::cout << "useradd: 缺少用户名" << std::endl;
+        return;
+    }
+
+    // 只有root可以创建用户
+    if (g_current_uid != 0) {
+        std::cout << "useradd: 只有root可以创建用户" << std::endl;
+        return;
+    }
+
+    // 自动分配UID (从当前用户数+1开始)
+    int new_uid = um_get_user_count();
+    int new_gid = new_uid;  // 简化: UID和GID相同
+
+    UserStatus status = um_create_user(username, new_uid, new_gid);
+    if (status != USER_SUCCESS) {
+        std::cout << "useradd: 创建失败" << std::endl;
+    } else {
+        std::cout << "用户创建成功: " << username << " (UID=" << new_uid << ", GID=" << new_gid << ")" << std::endl;
+    }
+}
+
+// 命令: userdel - 删除用户
+void cmd_userdel(const char* uid_str) {
+    if (uid_str == 0 || str_length(uid_str) == 0) {
+        std::cout << "userdel: 缺少用户ID" << std::endl;
+        return;
+    }
+
+    // 只有root可以删除用户
+    if (g_current_uid != 0) {
+        std::cout << "userdel: 只有root可以删除用户" << std::endl;
+        return;
+    }
+
+    int uid = atoi(uid_str);
+    UserStatus status = um_delete_user(uid);
+    if (status != USER_SUCCESS) {
+        std::cout << "userdel: 删除失败" << std::endl;
+    } else {
+        std::cout << "用户删除成功: UID=" << uid << std::endl;
+    }
+}
+
+// 命令: groupadd - 创建组
+void cmd_groupadd(const char* groupname) {
+    if (groupname == 0 || str_length(groupname) == 0) {
+        std::cout << "groupadd: 缺少组名" << std::endl;
+        return;
+    }
+
+    // 只有root可以创建组
+    if (g_current_uid != 0) {
+        std::cout << "groupadd: 只有root可以创建组" << std::endl;
+        return;
+    }
+
+    // 自动分配GID
+    int new_gid = um_get_group_count();
+
+    GroupStatus status = um_create_group(groupname, new_gid);
+    if (status != GROUP_SUCCESS) {
+        std::cout << "groupadd: 创建失败" << std::endl;
+    } else {
+        std::cout << "组创建成功: " << groupname << " (GID=" << new_gid << ")" << std::endl;
+    }
+}
+
+// 命令: help - 显示帮助
+void cmd_help() {
+    std::cout << "\n可用命令:" << std::endl;
+    std::cout << "  useradd <username>     - 创建新用户" << std::endl;
+    std::cout << "  userdel <uid>          - 删除用户" << std::endl;
+    std::cout << "  groupadd <groupname>   - 创建新组" << std::endl;
+    std::cout << "  ls [path]              - 列出目录内容" << std::endl;
+    std::cout << "  mkdir <path>           - 创建目录" << std::endl;
+    std::cout << "  touch <path>           - 创建文件" << std::endl;
+    std::cout << "  rm <path>              - 删除文件或空目录" << std::endl;
+    std::cout << "  rm -r <path>           - 递归删除" << std::endl;
+    std::cout << "  mv <src> <dest>        - 移动/重命名文件" << std::endl;
+    std::cout << "  cp <src> <dest>        - 复制文件" << std::endl;
+    std::cout << "  chmod <path> <perms>   - 修改权限 (755或rwxr-xr-x)" << std::endl;
+    std::cout << "  chown <path> <uid>     - 修改所有者" << std::endl;
+    std::cout << "  cd <path>              - 切换目录" << std::endl;
+    std::cout << "  pwd                    - 显示当前目录" << std::endl;
+    std::cout << "  su <uid>               - 切换用户" << std::endl;
+    std::cout << "  whoami                 - 显示当前用户" << std::endl;
+    std::cout << "  help                   - 显示此帮助" << std::endl;
+    std::cout << "  exit                   - 退出Shell" << std::endl;
+    std::cout << "\n权限格式示例:" << std::endl;
+    std::cout << "  755 (八进制) 或 rwxr-xr-x (符号)" << std::endl;
+}
+
+// 执行命令
+int execute_command(const char* input) {
+    char cmd[32];
+    char args[3][MAX_PATH_LEN];
+    int argc = 0;
+    int i = 0;
+    int j = 0;
+
+    // 跳过前导空格
+    while (input[i] == ' ' && input[i] != '\0') i++;
+
+    if (input[i] == '\0' || input[i] == '\n') {
+        return 0;  // 空命令
+    }
+
+    // 提取命令
+    j = 0;
+    while (input[i] != ' ' && input[i] != '\0' && input[i] != '\n' && j < 31) {
+        cmd[j++] = input[i++];
+    }
+    cmd[j] = '\0';
+
+    // 提取参数
+    for (int arg_idx = 0; arg_idx < 3; arg_idx++) {
+        // 跳过空格
+        while (input[i] == ' ' && input[i] != '\0') i++;
+
+        if (input[i] == '\0' || input[i] == '\n') {
+            args[arg_idx][0] = '\0';
+            break;
+        }
+
+        // 提取参数
+        j = 0;
+        while (input[i] != ' ' && input[i] != '\0' && input[i] != '\n' && j < MAX_PATH_LEN - 1) {
+            args[arg_idx][j++] = input[i++];
+        }
+        args[arg_idx][j] = '\0';
+        argc++;
+    }
+
+    // 执行命令
+    if (str_compare(cmd, "ls") == 0) {
+        cmd_ls(args[0]);
+    } else if (str_compare(cmd, "mkdir") == 0) {
+        cmd_mkdir(args[0]);
+    } else if (str_compare(cmd, "touch") == 0) {
+        cmd_touch(args[0]);
+    } else if (str_compare(cmd, "rm") == 0) {
+        if (argc > 1 && str_compare(args[0], "-r") == 0) {
+            cmd_rm(args[1], 1);
+        } else {
+            cmd_rm(args[0], 0);
+        }
+    } else if (str_compare(cmd, "mv") == 0) {
+        cmd_mv(args[0], args[1]);
+    } else if (str_compare(cmd, "cp") == 0) {
+        cmd_cp(args[0], args[1]);
+    } else if (str_compare(cmd, "chmod") == 0) {
+        cmd_chmod(args[0], args[1]);
+    } else if (str_compare(cmd, "chown") == 0) {
+        cmd_chown(args[0], args[1], args[2]);
+    } else if (str_compare(cmd, "cd") == 0) {
+        cmd_cd(args[0]);
+    } else if (str_compare(cmd, "pwd") == 0) {
+        cmd_pwd();
+    } else if (str_compare(cmd, "su") == 0) {
+        cmd_su(args[0]);
+    } else if (str_compare(cmd, "whoami") == 0) {
+        cmd_whoami();
+    } else if (str_compare(cmd, "useradd") == 0) {
+        cmd_useradd(args[0]);
+    } else if (str_compare(cmd, "userdel") == 0) {
+        cmd_userdel(args[0]);
+    } else if (str_compare(cmd, "groupadd") == 0) {
+        cmd_groupadd(args[0]);
+    } else if (str_compare(cmd, "help") == 0) {
+        cmd_help();
+    } else if (str_compare(cmd, "exit") == 0) {
+        return -1;  // 退出Shell
+    } else {
+        std::cout << "未知命令: " << cmd << " (输入 'help' 查看帮助)" << std::endl;
+    }
+
+    return 0;
+}
+
+// Shell主循环
+void shell_loop() {
+    char input[256];
+
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "UNIX 文件权限模拟器 - 交互式Shell" << std::endl;
+    std::cout << "========================================" << std::endl;
+    std::cout << "输入 'help' 查看可用命令" << std::endl;
+    std::cout << std::endl;
+
+    // 初始化当前目录为根目录
+    g_current_dir = fs_get_root();
+
+    while (1) {
+        print_prompt();
+
+        // 读取输入
+        if (std::cin.getline(input, sizeof(input))) {
+            if (execute_command(input) == -1) {
+                break;
+            }
+        }
+    }
+
+    std::cout << "\n再见!" << std::endl;
+}
+
 int main()
 {
     SetConsoleOutputCP(65001);
     std::cout << "========================================" << std::endl;
-    std::cout << "UNIX 文件权限模拟器 - 完整测试" << std::endl;
+    std::cout << "UNIX 文件权限模拟器" << std::endl;
     std::cout << "========================================" << std::endl;
+    std::cout << "请选择模式:" << std::endl;
+    std::cout << "  1. 运行所有测试" << std::endl;
+    std::cout << "  2. 交互式Shell" << std::endl;
+    std::cout << "请输入选择 (1 或 2): ";
+
+    char choice[10];
+    std::cin.getline(choice, sizeof(choice));
 
     // 初始化用户管理系统
     um_init();
 
-    // 第一阶段: 用户和组管理测试
-    std::cout << "\n############ 第一阶段: 用户和组管理测试 ############" << std::endl;
-    test_basic_user_management();
-    test_basic_group_management();
-    test_group_membership();
-    test_deletion();
+    if (str_compare(choice, "2") == 0) {
+        // Shell 模式
+        // 初始化文件系统
+        fs_init();
 
-    // 第二阶段: 文件系统测试
-    std::cout << "\n############ 第二阶段: 文件系统测试 ############" << std::endl;
-    test_fs_init();
-    test_fs_create();
-    test_fs_find();
-    test_permission_check();
-    test_chmod();
-    test_fs_delete();
+        // 创建root用户
+        um_create_user("root", 0, 0);
 
-    // 第三阶段: 文件移动和重命名测试
-    std::cout << "\n############ 第三阶段: 文件移动和重命名测试 ############" << std::endl;
-    test_rename();
-    test_rename_directory();
-    test_move_file();
-    test_move_directory();
-    test_move_rename_permissions();
-    test_copy();
-    test_delete_recursive();
+        shell_loop();
+    } else {
+        // 测试模式
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "UNIX 文件权限模拟器 - 完整测试" << std::endl;
+        std::cout << "========================================" << std::endl;
 
-    // 第三阶段续: 路径解析功能测试
-    std::cout << "\n############ 第三阶段续: 路径解析功能测试 ############" << std::endl;
-    test_normalize_path();
-    test_find_relative();
+        // 第一阶段: 用户和组管理测试
+        std::cout << "\n############ 第一阶段: 用户和组管理测试 ############" << std::endl;
+        test_basic_user_management();
+        test_basic_group_management();
+        test_group_membership();
+        test_deletion();
 
-    std::cout << "\n========================================" << std::endl;
-    std::cout << "所有测试完成!" << std::endl;
-    std::cout << "========================================" << std::endl;
+        // 第二阶段: 文件系统测试
+        std::cout << "\n############ 第二阶段: 文件系统测试 ############" << std::endl;
+        test_fs_init();
+        test_fs_create();
+        test_fs_find();
+        test_permission_check();
+        test_chmod();
+        test_fs_delete();
+
+        // 第三阶段: 文件移动和重命名测试
+        std::cout << "\n############ 第三阶段: 文件移动和重命名测试 ############" << std::endl;
+        test_rename();
+        test_rename_directory();
+        test_move_file();
+        test_move_directory();
+        test_move_rename_permissions();
+        test_copy();
+        test_delete_recursive();
+
+        // 第三阶段续: 路径解析功能测试
+        std::cout << "\n############ 第三阶段续: 路径解析功能测试 ############" << std::endl;
+        test_normalize_path();
+        test_find_relative();
+
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "所有测试完成!" << std::endl;
+        std::cout << "========================================" << std::endl;
+    }
 
     return 0;
 }

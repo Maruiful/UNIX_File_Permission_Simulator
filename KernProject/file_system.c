@@ -64,6 +64,30 @@ static void str_copy(char* dest, const char* src)
 }
 
 /**
+ * 字符串拼接（不使用标准库）
+ * @param dest 目标缓冲区（必须包含足够空间）
+ * @param src 要追加的源字符串
+ */
+static void str_concat(char* dest, const char* src)
+{
+    if (dest == 0 || src == 0) return;
+
+    int i = 0;
+    int j = 0;
+
+    // 找到 dest 的末尾
+    while (dest[i] != '\0') {
+        i++;
+    }
+
+    // 追加 src
+    while (src[j] != '\0') {
+        dest[i++] = src[j++];
+    }
+    dest[i] = '\0';
+}
+
+/**
  * 分配新的文件节点
  * @return 新文件节点指针，失败返回NULL
  */
