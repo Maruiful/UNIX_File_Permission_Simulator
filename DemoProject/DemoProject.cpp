@@ -1442,6 +1442,408 @@ void test_find_relative() {
     print_fs_status(status);
 }
 
+// ==================== 任务六: 批量测试脚本 ====================
+
+/**
+ * 场景一: 多用户协作项目测试
+ * 模拟真实开发团队协作场景
+ */
+void test_comprehensive_scenario() {
+    FileSystemStatus status;
+    Permissions perms;
+    FileNode* node;
+
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "场景一: 多用户协作项目测试" << std::endl;
+    std::cout << "========================================" << std::endl;
+
+    // 步骤1: root创建项目目录结构
+    std::cout << "\n[步骤1] root创建项目目录结构" << std::endl;
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.other_perms = PERM_READ | PERM_EXECUTE;
+
+    std::cout << "创建 /project 目录: ";
+    status = fs_create("/", "project", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "创建 /project/src 目录: ";
+    status = fs_create("/project", "src", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "创建 /project/docs 目录: ";
+    status = fs_create("/project", "docs", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    // 步骤2: 创建开发团队
+    std::cout << "\n[步骤2] 创建开发团队用户和组" << std::endl;
+    std::cout << "创建用户 alice (UID=1): ";
+    um_create_user("alice", 1, 1);
+    std::cout << "成功" << std::endl;
+
+    std::cout << "创建用户 bob (UID=2): ";
+    um_create_user("bob", 2, 2);
+    std::cout << "成功" << std::endl;
+
+    std::cout << "创建用户 charlie (UID=3): ";
+    um_create_user("charlie", 3, 3);
+    std::cout << "成功" << std::endl;
+
+    std::cout << "创建组 developers (GID=10): ";
+    um_create_group("developers", 10);
+    std::cout << "成功" << std::endl;
+
+    std::cout << "添加alice到developers组: ";
+    um_add_group_member(10, 1);
+    std::cout << "成功" << std::endl;
+
+    std::cout << "添加bob到developers组: ";
+    um_add_group_member(10, 2);
+    std::cout << "成功" << std::endl;
+
+    // 步骤3: alice创建项目文件
+    std::cout << "\n[步骤3] alice创建项目文件" << std::endl;
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_WRITE;
+    perms.other_perms = PERM_READ;
+
+    std::cout << "alice创建 /project/src/main.c: ";
+    status = fs_create("/project/src", "main.c", 1, 10, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "alice创建 /project/docs/readme.md: ";
+    status = fs_create("/project/docs", "readme.md", 1, 10, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 步骤4: bob修改文件(测试组写权限)
+    std::cout << "\n[步骤4] bob尝试修改文件" << std::endl;
+    node = fs_find("/project/src/main.c");
+
+    std::cout << "bob检查对main.c的写权限: ";
+    PermissionResult perm_result = fs_check_permission(node, 2, 10, OP_WRITE);
+    std::cout << (perm_result == PERM_GRANTED ? "允许" : "拒绝") << std::endl;
+
+    std::cout << "bob重命名main.c为core.c: ";
+    status = fs_rename("/project/src/main.c", "core.c", 2, 10);
+    print_fs_status(status);
+
+    // 步骤5: charlie尝试访问(无组成员权限)
+    std::cout << "\n[步骤5] charlie尝试访问文件" << std::endl;
+    node = fs_find("/project/src/core.c");
+
+    std::cout << "charlie检查对core.c的读权限: ";
+    perm_result = fs_check_permission(node, 3, 3, OP_READ);
+    std::cout << (perm_result == PERM_GRANTED ? "允许" : "拒绝") << std::endl;
+
+    std::cout << "charlie尝试删除core.c: ";
+    status = fs_delete("/project/src/core.c");
+    if (status == FS_ERR_PERMISSION) {
+        std::cout << "拒绝(正确)" << std::endl;
+    } else {
+        std::cout << "成功(错误!应该被拒绝)" << std::endl;
+    }
+
+    // 步骤6: 测试目录权限
+    std::cout << "\n[步骤6] 测试目录权限控制" << std::endl;
+    std::cout << "charlie尝试在/project/src创建文件: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = PERM_READ;
+    status = fs_create("/project/src", "test.c", 3, 3, perms, FILE_TYPE_REGULAR);
+    if (status == FS_ERR_PERMISSION) {
+        std::cout << "拒绝(正确)" << std::endl;
+    } else {
+        std::cout << "成功(错误!)" << std::endl;
+    }
+
+    // 清理
+    std::cout << "\n[清理] 删除测试数据" << std::endl;
+    std::cout << "递归删除 /project: ";
+    status = fs_delete_recursive("/project");
+    print_fs_status(status);
+
+    um_delete_user(1);
+    um_delete_user(2);
+    um_delete_user(3);
+    um_delete_group(10);
+
+    std::cout << "\n✅ 场景一测试完成!" << std::endl;
+}
+
+/**
+ * 场景二: 权限继承测试
+ * 验证不同层级的访问权限
+ */
+void test_multi_user_collaboration() {
+    FileSystemStatus status;
+    Permissions perms;
+    FileNode* node;
+
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "场景二: 权限继承测试" << std::endl;
+    std::cout << "========================================" << std::endl;
+
+    // 创建测试用户
+    um_create_user("user1", 100, 100);
+    um_create_user("user2", 200, 200);
+
+    // 步骤1: 创建层级目录结构
+    std::cout << "\n[步骤1] 创建层级目录结构" << std::endl;
+
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = PERM_READ | PERM_EXECUTE;
+
+    std::cout << "创建 /test (权限755): ";
+    status = fs_create("/", "test", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "创建 /test/level1: ";
+    status = fs_create("/test", "level1", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    std::cout << "创建 /test/level1/level2: ";
+    status = fs_create("/test/level1", "level2", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    print_fs_status(status);
+
+    // 步骤2: 在不同层级创建文件
+    std::cout << "\n[步骤2] 在不同层级创建文件" << std::endl;
+
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = PERM_READ;
+
+    std::cout << "创建 /test/file1.txt (权限644): ";
+    status = fs_create("/test", "file1.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "创建 /test/level1/file2.txt (权限600): ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = 0;
+    perms.other_perms = 0;
+    status = fs_create("/test/level1", "file2.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    // 步骤3: 测试user1的访问权限
+    std::cout << "\n[步骤3] 测试user1的访问权限" << std::endl;
+
+    node = fs_find("/test/file1.txt");
+    std::cout << "user1读取 /test/file1.txt: ";
+    PermissionResult result = fs_check_permission(node, 100, 100, OP_READ);
+    std::cout << (result == PERM_GRANTED ? "允许" : "拒绝") << std::endl;
+
+    node = fs_find("/test/level1/file2.txt");
+    std::cout << "user1读取 /test/level1/file2.txt: ";
+    result = fs_check_permission(node, 100, 100, OP_READ);
+    std::cout << (result == PERM_GRANTED ? "允许" : "拒绝") << std::endl;
+
+    // 步骤4: 修改目录权限并测试影响
+    std::cout << "\n[步骤4] 修改目录权限并测试" << std::endl;
+
+    std::cout << "将 /test/level1 权限改为 700: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = 0;
+    perms.other_perms = 0;
+    status = fs_chmod("/test/level1", perms);
+    print_fs_status(status);
+
+    node = fs_find("/test/level1");
+    std::cout << "user1访问 /test/level1 目录: ";
+    result = fs_check_permission(node, 100, 100, OP_EXECUTE);
+    std::cout << (result == PERM_GRANTED ? "允许" : "拒绝") << std::endl;
+
+    // 步骤5: 测试chmod的影响
+    std::cout << "\n[步骤5] 测试chmod对文件权限的影响" << std::endl;
+
+    std::cout << "将 /test/file1.txt 权限改为 000: ";
+    perms.owner_perms = 0;
+    perms.group_perms = 0;
+    perms.other_perms = 0;
+    status = fs_chmod("/test/file1.txt", perms);
+    print_fs_status(status);
+
+    node = fs_find("/test/file1.txt");
+    std::cout << "root读取 file1.txt: ";
+    result = fs_check_permission(node, 0, 0, OP_READ);
+    std::cout << (result == PERM_GRANTED ? "允许(root始终可访问)" : "拒绝") << std::endl;
+
+    // 清理
+    std::cout << "\n[清理] 删除测试数据" << std::endl;
+    std::cout << "递归删除 /test: ";
+    status = fs_delete_recursive("/test");
+    print_fs_status(status);
+
+    um_delete_user(100);
+    um_delete_user(200);
+
+    std::cout << "\n✅ 场景二测试完成!" << std::endl;
+}
+
+/**
+ * 场景三: 边界条件测试
+ * 测试系统的极限情况
+ */
+void test_edge_cases() {
+    FileSystemStatus status;
+    Permissions perms;
+    int file_count = 0;
+    int success_count = 0;
+    int fail_count = 0;
+
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "场景三: 边界条件测试" << std::endl;
+    std::cout << "========================================" << std::endl;
+
+    perms.owner_perms = PERM_READ | PERM_WRITE | PERM_EXECUTE;
+    perms.group_perms = PERM_READ | PERM_EXECUTE;
+    perms.other_perms = PERM_READ | PERM_EXECUTE;
+
+    // 测试1: 创建深层嵌套目录
+    std::cout << "\n[测试1] 创建深层嵌套目录结构" << std::endl;
+    status = fs_create("/", "deep", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    if (status == FS_SUCCESS) success_count++; else fail_count++;
+
+    status = fs_create("/deep", "level1", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    if (status == FS_SUCCESS) success_count++; else fail_count++;
+
+    status = fs_create("/deep/level1", "level2", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    if (status == FS_SUCCESS) success_count++; else fail_count++;
+
+    status = fs_create("/deep/level1/level2", "level3", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    if (status == FS_SUCCESS) success_count++; else fail_count++;
+
+    status = fs_create("/deep/level1/level2/level3", "level4", 0, 0, perms, FILE_TYPE_DIRECTORY);
+    if (status == FS_SUCCESS) success_count++; else fail_count++;
+
+    std::cout << "创建了5层嵌套目录" << std::endl;
+    std::cout << "验证: 查找 /deep/level1/level2/level3/level4: ";
+    FileNode* node = fs_find("/deep/level1/level2/level3/level4");
+    std::cout << (node ? "成功" : "失败") << std::endl;
+
+    // 测试2: 在单个目录中创建多个文件
+    std::cout << "\n[测试2] 在单个目录中创建多个文件" << std::endl;
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = PERM_READ;
+
+    for (int i = 0; i < 10; i++) {
+        char filename[32];
+        str_copy(filename, "file");
+        // 简单的数字转字符串
+        if (i < 10) {
+            filename[4] = '0' + i;
+            filename[5] = '\0';
+        }
+
+        status = fs_create("/deep/level1/level2/level3", filename, 0, 0, perms, FILE_TYPE_REGULAR);
+        if (status == FS_SUCCESS) {
+            file_count++;
+            success_count++;
+        } else {
+            fail_count++;
+        }
+    }
+    std::cout << "成功创建 " << file_count << " 个文件" << std::endl;
+
+    // 测试3: 超长文件名测试
+    std::cout << "\n[测试3] 超长文件名测试" << std::endl;
+    char long_name[MAX_FILENAME_LEN + 10];
+    for (int i = 0; i < MAX_FILENAME_LEN + 5; i++) {
+        long_name[i] = 'a';
+    }
+    long_name[MAX_FILENAME_LEN + 5] = '\0';
+
+    std::cout << "尝试创建超长文件名(" << (MAX_FILENAME_LEN + 5) << "字符): ";
+    status = fs_create("/", long_name, 0, 0, perms, FILE_TYPE_REGULAR);
+    if (status == FS_ERR_INVALID) {
+        std::cout << "正确拒绝" << std::endl;
+        success_count++;
+    } else {
+        std::cout << "错误!应该拒绝" << std::endl;
+        fail_count++;
+    }
+
+    // 测试4: 最大长度文件名
+    std::cout << "\n[测试4] 最大长度文件名测试(" << (MAX_FILENAME_LEN - 1) << "字符)" << std::endl;
+    char max_name[MAX_FILENAME_LEN];
+    for (int i = 0; i < MAX_FILENAME_LEN - 1; i++) {
+        max_name[i] = 'b';
+    }
+    max_name[MAX_FILENAME_LEN - 1] = '\0';
+
+    std::cout << "创建最大长度文件名: ";
+    status = fs_create("/", max_name, 0, 0, perms, FILE_TYPE_REGULAR);
+    if (status == FS_SUCCESS) {
+        std::cout << "成功" << std::endl;
+        success_count++;
+        // 验证可以找到
+        node = fs_find("/");
+        FileNode* child = node->children;
+        int found = 0;
+        while (child != 0) {
+            if (str_compare(child->filename, max_name) == 0) {
+                found = 1;
+                break;
+            }
+            child = child->next;
+        }
+        if (found) {
+            std::cout << "验证: 可以找到该文件" << std::endl;
+        }
+        // 清理
+        fs_delete(max_name);
+    } else {
+        std::cout << "失败" << std::endl;
+        fail_count++;
+    }
+
+    // 测试5: 删除不存在的文件
+    std::cout << "\n[测试5] 删除不存在的文件" << std::endl;
+    std::cout << "删除 /nonexistent/file.txt: ";
+    status = fs_delete("/nonexistent/file.txt");
+    if (status == FS_ERR_NOT_FOUND) {
+        std::cout << "正确返回FS_ERR_NOT_FOUND" << std::endl;
+        success_count++;
+    } else {
+        std::cout << "错误状态码" << std::endl;
+        fail_count++;
+    }
+
+    // 测试6: 移动文件到自身
+    std::cout << "\n[测试6] 移动文件到自身目录" << std::endl;
+    std::cout << "创建测试文件 /testmove.txt: ";
+    perms.owner_perms = PERM_READ | PERM_WRITE;
+    perms.group_perms = PERM_READ;
+    perms.other_perms = PERM_READ;
+    status = fs_create("/", "testmove.txt", 0, 0, perms, FILE_TYPE_REGULAR);
+    print_fs_status(status);
+
+    std::cout << "移动到相同目录: ";
+    status = fs_move("/testmove.txt", "/", 0, 0);
+    if (status == FS_ERR_EXISTS) {
+        std::cout << "正确拒绝(文件已存在)" << std::endl;
+        success_count++;
+    } else {
+        std::cout << "状态码: " << status << std::endl;
+        fail_count++;
+    }
+
+    // 清理
+    std::cout << "\n[清理] 删除所有测试数据" << std::endl;
+    fs_delete("/testmove.txt");
+    fs_delete_recursive("/deep");
+
+    // 统计结果
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "边界测试统计:" << std::endl;
+    std::cout << "  成功: " << success_count << std::endl;
+    std::cout << "  失败: " << fail_count << std::endl;
+    std::cout << "  成功率: " << (success_count * 100 / (success_count + fail_count)) << "%" << std::endl;
+    std::cout << "========================================" << std::endl;
+
+    std::cout << "\n✅ 场景三测试完成!" << std::endl;
+}
+
 // ==================== 交互式命令行界面 ====================
 
 // 全局状态变量
@@ -2410,6 +2812,12 @@ int main()
         std::cout << "\n############ 第三阶段续: 路径解析功能测试 ############" << std::endl;
         test_normalize_path();
         test_find_relative();
+
+        // 第三阶段任务六: 批量测试脚本
+        std::cout << "\n############ 第三阶段任务六: 批量测试脚本 ############" << std::endl;
+        test_comprehensive_scenario();
+        test_multi_user_collaboration();
+        test_edge_cases();
 
         std::cout << "\n========================================" << std::endl;
         std::cout << "所有测试完成!" << std::endl;
