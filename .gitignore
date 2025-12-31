@@ -95,3 +95,6 @@ $RECYCLE.BIN/
 *.bak
 *.backup
 *~
+
+# AI 辅助开发文档 (不需要上传到 GitHub)
+CLAUDE.md
