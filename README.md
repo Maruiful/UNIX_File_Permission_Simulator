@@ -338,7 +338,7 @@ UNIX_File_Permission_Simulator/
 
 - **项目**: UNIX 文件权限模拟器
 - **版本**: 1.0
-- **年份**: 2025
+- **年份**: 2026
 
 ---
 
@@ -358,6 +358,6 @@ UNIX_File_Permission_Simulator/
 
 **如果这个项目对您有帮助,请给一个 ⭐️ Star!**
 
-Made with ❤️ by [Your Name]
+Made with ❤️ by Maruiful
 
 </div>
