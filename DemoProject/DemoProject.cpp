@@ -2468,11 +2468,38 @@ void cmd_chmod(const char* path, const char* perms_str) {
 
     // 解析权限字符串 (例如: 755 或 rwxr-xr-x)
     if (str_length(perms_str) == 3) {
-        // 八进制格式
-        int p = atoi(perms_str);
-        owner_perms = (p >> 6) & 7;
-        group_perms = (p >> 3) & 7;
-        other_perms = p & 7;
+        // 八进制格式 (例如: 400, 755)
+        int p = 0;
+        for (int i = 0; i < 3; i++) {
+            char c = perms_str[i];
+            if (c >= '0' && c <= '7') {
+                p = p * 8 + (c - '0');  // 八进制转十进制
+            } else {
+                std::cout << "chmod: 无效权限格式" << std::endl;
+                return;
+            }
+        }
+        // 将八进制数字转换为权限位组合
+        int owner_octal = (p >> 6) & 7;
+        int group_octal = (p >> 3) & 7;
+        int other_octal = p & 7;
+
+        // 转换: 八进制数字 -> 权限位
+        // 4(100) -> r--, 2(010) -> -w-, 1(001) -> --x
+        owner_perms = 0;
+        if (owner_octal & 4) owner_perms |= PERM_READ;
+        if (owner_octal & 2) owner_perms |= PERM_WRITE;
+        if (owner_octal & 1) owner_perms |= PERM_EXECUTE;
+
+        group_perms = 0;
+        if (group_octal & 4) group_perms |= PERM_READ;
+        if (group_octal & 2) group_perms |= PERM_WRITE;
+        if (group_octal & 1) group_perms |= PERM_EXECUTE;
+
+        other_perms = 0;
+        if (other_octal & 4) other_perms |= PERM_READ;
+        if (other_octal & 2) other_perms |= PERM_WRITE;
+        if (other_octal & 1) other_perms |= PERM_EXECUTE;
     } else if (str_length(perms_str) == 9) {
         // 符号格式 rwxr-xr-x
         if (perms_str[0] == 'r') owner_perms |= PERM_READ;
@@ -2512,11 +2539,12 @@ void cmd_chown(const char* path, const char* uid_str, const char* gid_str) {
     if (path == 0 || uid_str == 0 ||
         str_length(path) == 0 || str_length(uid_str) == 0) {
         std::cout << "chown: 缺少参数" << std::endl;
+        std::cout << "用法: chown <path> <uid> [gid]" << std::endl;
         return;
     }
 
     uid = atoi(uid_str);
-    gid = (gid_str != 0 && str_length(gid_str) > 0) ? atoi(gid_str) : g_current_gid;
+    gid = (gid_str != 0 && str_length(gid_str) > 0) ? atoi(gid_str) : -1;  // -1 表示不修改GID
 
     FileSystemStatus status = fs_chown(path, uid, gid);
     if (status != FS_SUCCESS) {
@@ -2526,6 +2554,12 @@ void cmd_chown(const char* path, const char* uid_str, const char* gid_str) {
             std::cout << "chown: 文件不存在" << std::endl;
         } else {
             std::cout << "chown: 修改失败" << std::endl;
+        }
+    } else {
+        if (gid != -1) {
+            std::cout << "修改所有者成功: UID=" << uid << ", GID=" << gid << std::endl;
+        } else {
+            std::cout << "修改所有者成功: UID=" << uid << std::endl;
         }
     }
 }
@@ -2540,6 +2574,9 @@ void cmd_cd(const char* path) {
     } else if (str_compare(path, "~") == 0) {
         // cd ~ 回到根目录
         new_dir = fs_get_root();
+    } else if (str_compare(path, ".") == 0 || str_compare(path, "./") == 0) {
+        // cd . 或 cd ./ 表示当前目录
+        new_dir = g_current_dir;
     } else if (path[0] == '/') {
         // 绝对路径
         new_dir = fs_find(path);
@@ -2590,6 +2627,9 @@ void cmd_su(const char* uid_str) {
 
     g_current_uid = new_uid;
     g_current_gid = user->gid;
+
+    // 同步到内核层
+    fs_set_current_user(g_current_uid, g_current_gid);
 }
 
 // 命令: whoami - 显示当前用户
@@ -2668,12 +2708,60 @@ void cmd_groupadd(const char* groupname) {
     }
 }
 
+// 命令: groupmod - 添加用户到组
+void cmd_groupmod(const char* gid_str, const char* uid_str) {
+    if (gid_str == 0 || str_length(gid_str) == 0) {
+        std::cout << "groupmod: 缺少GID参数" << std::endl;
+        std::cout << "用法: groupmod <gid> <uid>" << std::endl;
+        return;
+    }
+
+    if (uid_str == 0 || str_length(uid_str) == 0) {
+        std::cout << "groupmod: 缺少UID参数" << std::endl;
+        std::cout << "用法: groupmod <gid> <uid>" << std::endl;
+        return;
+    }
+
+    // 只有root可以修改组成员
+    if (g_current_uid != 0) {
+        std::cout << "groupmod: 只有root可以修改组成员" << std::endl;
+        return;
+    }
+
+    // 转换GID和UID
+    int gid = atoi(gid_str);
+    int uid = atoi(uid_str);
+
+    // 验证用户存在
+    if (uid < 0 || uid >= um_get_user_count()) {
+        std::cout << "groupmod: 用户不存在 (UID=" << uid << ")" << std::endl;
+        return;
+    }
+
+    // 验证组存在
+    if (gid < 0 || gid >= um_get_group_count()) {
+        std::cout << "groupmod: 组不存在 (GID=" << gid << ")" << std::endl;
+        return;
+    }
+
+    // 添加成员到组
+    GroupStatus status = um_add_group_member(gid, uid);
+    if (status == GROUP_SUCCESS) {
+        std::cout << "成功将 UID=" << uid << " 添加到 GID=" << gid << std::endl;
+    } else if (status == GROUP_ERR_EXISTS) {
+        std::cout << "用户已在该组中" << std::endl;
+    } else {
+        std::cout << "groupmod: 添加成员失败" << std::endl;
+    }
+}
+
 // 命令: help - 显示帮助
 void cmd_help() {
     std::cout << "\n可用命令:" << std::endl;
     std::cout << "  useradd <username>     - 创建新用户" << std::endl;
     std::cout << "  userdel <uid>          - 删除用户" << std::endl;
     std::cout << "  groupadd <groupname>   - 创建新组" << std::endl;
+    std::cout << "  groupmod <gid> <uid>   - 添加用户到组" << std::endl;
     std::cout << "  ls [path]              - 列出目录内容" << std::endl;
     std::cout << "  mkdir <path>           - 创建目录" << std::endl;
     std::cout << "  touch <path>           - 创建文件" << std::endl;
@@ -2769,6 +2857,8 @@ int execute_command(const char* input) {
         cmd_userdel(args[0]);
     } else if (str_compare(cmd, "groupadd") == 0) {
         cmd_groupadd(args[0]);
+    } else if (str_compare(cmd, "groupmod") == 0) {
+        cmd_groupmod(args[0], args[1]);
     } else if (str_compare(cmd, "help") == 0) {
         cmd_help();
     } else if (str_compare(cmd, "exit") == 0) {
@@ -2831,6 +2921,11 @@ int main()
 
         // 创建root用户
         um_create_user("root", 0, 0);
+
+        // 设置默认用户为root
+        fs_set_current_user(0, 0);
+        g_current_uid = 0;
+        g_current_gid = 0;
 
         shell_loop();
     } else {

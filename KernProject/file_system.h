@@ -241,6 +241,26 @@ int fs_get_file_count(void);
  */
 FileNode* fs_get_root(void);
 
+/**
+ * 设置当前用户
+ * @param uid 用户ID
+ * @param gid 用户组ID
+ * @note 在执行文件操作前需要设置当前用户
+ */
+void fs_set_current_user(int uid, int gid);
+
+/**
+ * 获取当前用户ID
+ * @return 当前用户ID
+ */
+int fs_get_current_uid(void);
+
+/**
+ * 获取当前用户组ID
+ * @return 当前用户组ID
+ */
+int fs_get_current_gid(void);
+
 #ifdef __cplusplus
 }
 #endif

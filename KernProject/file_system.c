@@ -7,6 +7,8 @@ static FileNode* g_root = 0;                     // 根目录指针
 static FileNode g_file_nodes[MAX_FILES];         // 文件节点池
 static int g_file_count = 0;                     // 当前文件节点数量
 static int g_next_inode = 1;                     // 下一个可用的 inode 号
+static int g_current_uid = 0;                    // 当前用户ID
+static int g_current_gid = 0;                    // 当前用户组ID
 
 // ==================== 内部辅助函数 ====================
 
@@ -224,6 +226,31 @@ FileNode* fs_get_root(void)
 int fs_get_file_count(void)
 {
     return g_file_count;
+}
+
+/**
+ * 设置当前用户
+ */
+void fs_set_current_user(int uid, int gid)
+{
+    g_current_uid = uid;
+    g_current_gid = gid;
+}
+
+/**
+ * 获取当前用户ID
+ */
+int fs_get_current_uid(void)
+{
+    return g_current_uid;
+}
+
+/**
+ * 获取当前用户组ID
+ */
+int fs_get_current_gid(void)
+{
+    return g_current_gid;
 }
 
 // ==================== 辅助函数实现 ====================
@@ -506,6 +533,11 @@ FileNode* fs_find_relative(FileNode* current_dir, const char* path)
     // 必须是目录
     if (current->type != FILE_TYPE_DIRECTORY) {
         return 0;
+    }
+
+    // 处理空路径（规范化后的 "." 或 "./" 表示当前目录）
+    if (normalized[0] == '\0') {
+        return current;
     }
 
     start = 0;
@@ -794,10 +826,9 @@ FileSystemStatus fs_delete(const char* path)
         return FS_ERR_INVALID;
     }
 
-    // 获取当前用户（这里简化处理，实际应该从上下文获取）
-    // 暂时使用文件所有者的身份
-    uid = file->uid;
-    gid = file->gid;
+    // 获取当前用户
+    uid = g_current_uid;
+    gid = g_current_gid;
 
     // 检查父目录的写权限
     if (fs_check_permission(parent, uid, gid, OP_WRITE) != PERM_GRANTED) {
@@ -967,9 +998,9 @@ FileSystemStatus fs_chmod(const char* path, Permissions perms)
         return FS_ERR_NOT_FOUND;
     }
 
-    // 获取当前用户（这里简化处理）
-    uid = file->uid;
-    gid = file->gid;
+    // 获取当前用户
+    uid = g_current_uid;
+    gid = g_current_gid;
 
     // 只有所有者或 root 可以修改权限
     if (uid != file->uid && uid != 0) {
@@ -1001,8 +1032,8 @@ FileSystemStatus fs_chown(const char* path, int uid, int gid)
         return FS_ERR_NOT_FOUND;
     }
 
-    // 获取当前用户（这里简化处理）
-    current_uid = file->uid;
+    // 获取当前用户
+    current_uid = g_current_uid;
 
     // 只有 root 可以修改所有者
     if (current_uid != 0) {
@@ -1011,7 +1042,11 @@ FileSystemStatus fs_chown(const char* path, int uid, int gid)
 
     // 修改所有者
     file->uid = uid;
-    file->gid = gid;
+
+    // 如果 gid != -1，则修改组ID
+    if (gid != -1) {
+        file->gid = gid;
+    }
 
     return FS_SUCCESS;
 }
