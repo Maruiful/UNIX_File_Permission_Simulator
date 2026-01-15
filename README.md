@@ -11,6 +11,13 @@
 </div>
 
 ---
+>这是hfut的操作系统课程设计中的一题，原题目是
+>访问控制技术：建立基于访问权限表的系统安全管理。
+>⚫ 实现 UNIX/LINUX 的文件访问权限模型；
+>⚫ 模拟文件及目录的数据结构，为文件添加访问权限
+>⚫ 建立用户与用户组模型
+>⚫ 设计读、写和执行三种指令，模拟不同用户访问文件或目录时所发生的受限情况。
+>我实现了上述功能，并进行了扩展，大部分测试都能通过，但是严格的测试无法通过，同时相比于一个完整的linux，还欠缺很多东西。
 
 ## 📖 项目简介
 
@@ -249,9 +256,8 @@ UNIX_File_Permission_Simulator/
 │   └── 开发者文档.md
 │
 ├── README.md                   # 本文件
-├── CLAUDE.md                   # Claude Code 项目说明
 ├── 第三阶段任务.md             # 任务需求文档
-└── UNIX_File_Permission_Simulator.slnx  # Visual Studio 解决方案
+└── UNIX_File_Permission_Simulator.sln  # Visual Studio 解决方案
 ```
 
 ---
